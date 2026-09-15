@@ -8,7 +8,7 @@ const { swaggerSpec } = require('./config/swagger');
 const { apiRateLimiter } = require('./middlewares/rateLimiter');
 const { errorHandler } = require('./middlewares/errorHandler');
 const routes = require('./routes');
-const healthRoutes = require('./routes/web/health.routes');
+const healthRoutes = require('./routes/health/health.routes');
 
 const app = express();
 

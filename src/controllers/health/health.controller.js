@@ -1,4 +1,4 @@
-const healthService = require('../../services/web/health.service');
+const healthService = require('../../services/health/health.service');
 
 /**
  * Health Controller

@@ -1,9 +1,11 @@
 const { Router } = require('express');
-const webRoutes = require('./web');
+const authRoutes = require('./auth/auth.routes');
+const healthRoutes = require('./health/health.routes');
 
 const router = Router();
 
-// Mount all web routes under /api
-router.use('/', webRoutes);
+// Mount feature routes under /api
+router.use('/auth', authRoutes);
+router.use('/health', healthRoutes);
 
 module.exports = router;

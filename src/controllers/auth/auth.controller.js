@@ -1,7 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { env } = require('../../config/env');
-const authService = require('../../services/web/auth.service');
+const authService = require('../../services/auth/auth.service');
 
 /**
  * Authentication Controller

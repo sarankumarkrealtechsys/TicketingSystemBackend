@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { validate } = require('../../validators');
-const { loginSchema, registerSchema } = require('../../validators/web/auth.validator');
-const { login, register, logout } = require('../../controllers/web/auth.controller');
+const { loginSchema, registerSchema } = require('../../validators/auth/auth.validator');
+const { login, register, logout } = require('../../controllers/auth/auth.controller');
 
 const router = Router();
 
