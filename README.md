@@ -11,7 +11,6 @@ Production-ready, reusable backend application built with **Node.js + Express (P
 - **Prisma 6.16.3**: Exact CLI & Client version targeting PostgreSQL.
 - **Local PostgreSQL**: Primary development database (`DATABASE_URL`).
 - **Redis**: Caching, pub/sub, and session management (`src/lib/redis.js`).
-- **RabbitMQ**: Asynchronous message queues (`src/queues/config/rabbitmq.js`).
 - **Socket.IO**: Real-time event communication (`src/sockets/index.js`).
 - **JWT & bcrypt**: Authentication and role/permission authorization.
 - **Zod**: Runtime schema validation for requests and environment variables.
@@ -61,11 +60,10 @@ npm run prisma:seed
 ```
 
 ## Supporting Infrastructure (Docker Compose)
-To start Redis, RabbitMQ, and an optional containerized PostgreSQL:
+To start Redis and an optional containerized PostgreSQL:
 ```bash
 docker compose up -d
 ```
-- RabbitMQ Management UI: [http://localhost:15672](http://localhost:15672) (guest / guest)
 - Redis: `localhost:6379`
 - Swagger UI: [http://localhost:5000/api-docs](http://localhost:5000/api-docs)
 - Health Check: [http://localhost:5000/health](http://localhost:5000/health)

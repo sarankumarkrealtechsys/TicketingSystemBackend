@@ -4,7 +4,6 @@ const { env } = require('./config/env');
 const { logger } = require('./config/logger');
 const { initSocketIO } = require('./sockets');
 const { connectRedis } = require('./lib/redis');
-const { connectRabbitMQ } = require('./queues/config/rabbitmq');
 
 const server = http.createServer(app);
 
@@ -15,7 +14,6 @@ const startServer = async () => {
   try {
     // Attempt connections to optional / external infrastructure
     await connectRedis();
-    await connectRabbitMQ();
 
     server.listen(env.PORT, () => {
       logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
