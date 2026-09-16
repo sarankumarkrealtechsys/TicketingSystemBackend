@@ -1,8 +1,8 @@
-const { z } = require('zod');
+const { z } = require("zod");
 
 const healthQuerySchema = {
   query: z.object({
-    detailed: z.enum(['true', 'false']).optional(),
+    detailed: z.enum(["true", "false"]).optional(),
   }),
 };
 

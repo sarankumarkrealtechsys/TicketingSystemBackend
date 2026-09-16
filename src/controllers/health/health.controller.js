@@ -1,4 +1,4 @@
-const healthService = require('../../services/health/health.service');
+const healthService = require("../../services/health/health.service");
 
 /**
  * Health Controller
@@ -6,11 +6,11 @@ const healthService = require('../../services/health/health.service');
  */
 const getHealth = async (req, res, next) => {
   try {
-    const isDetailed = req.query.detailed === 'true';
+    const isDetailed = req.query.detailed === "true";
 
     // Basic health response
     const healthStatus = {
-      status: 'ok',
+      status: "ok",
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     };

@@ -1,7 +1,9 @@
-const { Router } = require('express');
-const { validate } = require('../../validators');
-const { healthQuerySchema } = require('../../validators/health/health.validator');
-const { getHealth } = require('../../controllers/health/health.controller');
+const { Router } = require("express");
+const { validate } = require("../../validators");
+const {
+  healthQuerySchema,
+} = require("../../validators/health/health.validator");
+const { getHealth } = require("../../controllers/health/health.controller");
 
 const router = Router();
 
@@ -24,6 +26,6 @@ const router = Router();
  *       400:
  *         description: Invalid query parameters
  */
-router.get('/', validate(healthQuerySchema), getHealth);
+router.get("/", validate(healthQuerySchema), getHealth);
 
 module.exports = router;

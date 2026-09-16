@@ -1,17 +1,758 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+// RTS Help Desk — Prisma Schema (Based on BRD v10)
+// Datasource: PostgreSQL
+// Structure: Department → Teams → Tickets, Department → Users, Users ↔ Teams (via UserTeam)
+// Rule: One User belongs to exactly one Department but can belong to multiple Teams within that Department.
+// Statuses: Fully dynamic, database-driven. Default statuses seeded, not hardcoded.
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// Minimal model for schema validation
-model HealthCheck {
-  id        Int      @id @default(autoincrement())
-  status    String   @default("ok")
-  checkedAt DateTime @default(now())
-
-  @@map("health_checks")
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
+// ======================== ENUMS ========================
+
+// Renamed from "Role" to avoid collision with the new Role model.
+// Kept during the transition window; drop after full migration to the Role table.
+enum LegacyRole {
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MasterDataStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Semantic behavior category for dynamic statuses.
+// This is NOT the ticket status itself — it tells the application what a status MEANS
+// for lifecycle, dashboards, resolution, and closure logic.
+enum TicketStatusBehavior {
+  OPEN
+  IN_PROGRESS
+  ON_HOLD
+  RESOLVED
+  CLOSED
+}
+
+// Audit log actions (BRD 8.1)
+enum TicketHistoryAction {
+  CREATED
+  STATUS_CHANGED
+  ASSIGNEE_ADDED
+  ASSIGNEE_REMOVED
+  REASSIGNED
+  PRIORITY_CHANGED
+  REMARK_ADDED
+  SUB_TICKET_CREATED
+  TIME_LOGGED
+  ATTACHMENT_ADDED
+  ATTACHMENT_REMOVED
+  CUSTOM_FIELD_CHANGED
+  TEAM_ADDED
+  TEAM_REMOVED
+}
+
+enum TicketFieldType {
+  TEXT
+  LONG_TEXT
+  NUMBER
+  DECIMAL
+  BOOLEAN
+  DATE
+  DATETIME
+  SELECT
+  MULTI_SELECT
+  EMAIL
+  URL
+}
+
+enum TimeEntryWorkType {
+  INVESTIGATION
+  DEVELOPMENT
+  BUG_FIX
+  TESTING
+  CODE_REVIEW
+  DEPLOYMENT
+  COMMUNICATION
+  DOCUMENTATION
+  OTHER
+}
+
+// Scope qualifier for role–permission grants (BRD v14, Section 3.5)
+enum PermissionScope {
+  GLOBAL
+  OWN
+  ASSIGNED
+  TEAM
+  DEPARTMENT
+}
+
+// ======================== DEPARTMENT ========================
+
+model Department {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique @db.VarChar(120)
+  description String?          @db.Text
+  status      MasterDataStatus @default(ACTIVE)
+
+  createdById Int
+  createdBy   User             @relation("DepartmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime         @default(now())
+
+  users User[] @relation("DepartmentUsers")
+  teams Team[]
+
+  @@index([status])
+  @@map("departments")
+}
+
+// ======================== USER (BRD 3.1, 3.2) ========================
+
+model User {
+  id       Int        @id @default(autoincrement())
+  name     String     @db.VarChar(150)
+  username String     @unique @db.VarChar(100)
+  password String     @db.VarChar(255) // bcrypt/argon2 hash, never plaintext
+  email    String     @unique @db.VarChar(190)
+  legacyRole LegacyRole @default(USER) @map("role") // Kept during transition — will be dropped after full migration to Role table
+  roleId     Int
+  userRole   Role       @relation("UserRole", fields: [roleId], references: [id], onDelete: Restrict)
+  status   UserStatus @default(ACTIVE)
+
+  // User belongs to exactly one Department. Can belong to multiple Teams within that Department via UserTeam.
+  // RAW SQL TRIGGER: Dept change allowed only if every active UserTeam.team belongs to the new Department.
+  //                  Also blocked while user has active TicketAssignee rows.
+  departmentId Int
+  department   Department @relation("DepartmentUsers", fields: [departmentId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ticketsCreated        Ticket[]         @relation("TicketCreatedBy")
+  ticketAssignments     TicketAssignee[] @relation("AssignmentUser")
+  assignmentsMade       TicketAssignee[] @relation("AssignedByUser")
+  historyEntries        TicketHistory[]  @relation("HistoryUpdatedBy")
+  timeEntries           TimeEntry[]      @relation("TimeEntryUser")
+  teamMemberships       UserTeam[]       @relation("UserTeamMemberships")
+  createdDepartments    Department[]     @relation("DepartmentCreatedBy")
+  createdTeams          Team[]           @relation("TeamCreatedBy")
+  createdProjects       Project[]        @relation("ProjectCreatedBy")
+  createdPriorityLevels PriorityLevel[]  @relation("PriorityCreatedBy")
+  createdTicketStatuses TicketStatus[]   @relation("TicketStatusCreatedBy")
+  uploadedAttachments     TicketAttachment[]      @relation("TicketAttachmentUploader")
+  deletedAttachments      TicketAttachment[]      @relation("TicketAttachmentDeleter")
+  createdFieldDefinitions TicketFieldDefinition[] @relation("TicketFieldDefinitionCreatedBy")
+  assignedTicketTeams     TicketTeam[]            @relation("TicketTeamAssignedBy")
+  addedTeamMemberships    UserTeam[]              @relation("UserTeamAddedBy")
+  removedTeamMemberships  UserTeam[]              @relation("UserTeamRemovedBy")
+  performedAuditLogs      AuditLog[]              @relation("AuditLogPerformedBy")
+  createdRoles            Role[]                  @relation("RoleCreatedBy")
+  grantedRolePermissions  RolePermission[]        @relation("RolePermissionGrantedBy")
+
+  @@index([departmentId, status, legacyRole], name: "idx_user_department_status_role")
+  @@index([roleId])
+  @@index([status])
+  @@map("users")
+}
+
+// ======================== ROLE & PERMISSION (BRD v14, Section 3.5) ========================
+// Permission-based access control layered on top of the existing role system.
+// Admin and User roles keep behaving exactly as before; only the enforcement mechanism changes.
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique @db.VarChar(50)   // "ADMIN", "USER", extensible later
+  description String?          @db.Text
+  status      MasterDataStatus @default(ACTIVE)
+
+  createdById Int
+  createdBy   User             @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime         @default(now())
+
+  rolePermissions RolePermission[]
+  users           User[]         @relation("UserRole")
+
+  @@index([status])
+  @@map("roles")
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @db.VarChar(60)   // e.g. "TICKET_REASSIGN"
+  description String   @db.Text
+  category    String   @db.VarChar(50)           // grouping for admin UI, e.g. "Ticket"
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@index([category])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           Int              @id @default(autoincrement())
+
+  roleId       Int
+  role         Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  permissionId Int
+  permission   Permission       @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  scope        PermissionScope? // null where the Permission is inherently GLOBAL-only
+
+  grantedById  Int
+  grantedBy    User             @relation("RolePermissionGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+  grantedAt    DateTime         @default(now())
+
+  @@unique([roleId, permissionId, scope])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ======================== TEAM (BRD 4.2) ========================
+
+model Team {
+  id             Int              @id @default(autoincrement())
+  name           String           @db.VarChar(120) // Unique per Department, not globally
+  description    String?          @db.Text
+  teamAdminEmail String           @db.VarChar(190)
+  status         MasterDataStatus @default(ACTIVE)
+
+  // RAW SQL TRIGGER: Block departmentId change once Team has tickets, active assignments, or active memberships
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  createdById Int
+  createdBy   User     @relation("TeamCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+
+  tickets                Ticket[]                @relation("TicketTeam")
+  ticketStatuses         TicketStatus[]          @relation("TicketStatusTeam")
+  members                UserTeam[]              @relation("TeamMemberships")
+  customFieldDefinitions TicketFieldDefinition[] @relation("TicketFieldDefinitionTeam")
+  ticketCollaborations   TicketTeam[]            @relation("TeamTickets")
+  ticketAssignments      TicketAssignee[]        @relation("TicketAssigneeTeam")
+
+  @@unique([departmentId, name])
+  @@index([departmentId, status], name: "idx_team_department_status")
+  @@map("teams")
+}
+
+// ======================== USER ↔ TEAM MEMBERSHIP ========================
+// Many-to-many: one User can belong to multiple Teams within their Department.
+// removedAt enables soft-remove — historical membership is retained for audit.
+// RAW SQL: Partial unique index for active membership (no @@unique here — allows rejoin after leaving)
+// RAW SQL TRIGGER: Enforce User.departmentId == Team.departmentId
+
+model UserTeam {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  user   User @relation("UserTeamMemberships", fields: [userId], references: [id], onDelete: Restrict)
+
+  teamId Int
+  team   Team @relation("TeamMemberships", fields: [teamId], references: [id], onDelete: Restrict)
+
+  addedById Int
+  addedBy   User @relation("UserTeamAddedBy", fields: [addedById], references: [id], onDelete: Restrict)
+
+  removedById Int?
+  removedBy   User? @relation("UserTeamRemovedBy", fields: [removedById], references: [id], onDelete: Restrict)
+
+  joinedAt  DateTime  @default(now())
+  removedAt DateTime? // NULL = active member, set timestamp = removed (row kept for history)
+
+  @@index([userId, removedAt], name: "idx_user_team_user_active")
+  @@index([teamId, removedAt], name: "idx_user_team_team_active")
+  @@index([addedById])
+  @@index([removedById])
+  @@map("user_teams")
+}
+
+// ======================== PROJECT (BRD 4.1) ========================
+
+model Project {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique @db.VarChar(150)
+  description String?          @db.Text
+  status      MasterDataStatus @default(ACTIVE)
+
+  createdById Int
+  createdBy   User     @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+
+  tickets Ticket[] @relation("TicketProject")
+
+  @@index([status])
+  @@map("projects")
+}
+
+// ======================== PRIORITY LEVEL (BRD 4.3) ========================
+
+model PriorityLevel {
+  id        Int              @id @default(autoincrement())
+  label     String           @unique @db.VarChar(50)
+  sortOrder Int              @default(0) // Display order, Admin-adjustable
+  status    MasterDataStatus @default(ACTIVE)
+
+  createdById Int
+  createdBy   User     @relation("PriorityCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+
+  tickets Ticket[]
+
+  @@index([status, sortOrder])
+  @@map("priority_levels")
+}
+
+// ======================== TICKET STATUS (Dynamic, Database-Driven) ========================
+// Replaces both the old TicketStage enum and CustomStatus model.
+// Default statuses (Open, In Progress, On Hold, Resolved, Closed) are seeded as database rows.
+// Teams can add their own statuses. Each status has a behavior for lifecycle/reporting logic.
+//
+// Scoping:
+//   teamId = NULL  → global default status, available to all Teams
+//   teamId = X     → Team-specific status, available only to that Team
+//
+// Who can add statuses:
+//   Admin → create/rename/retire for any Team or global
+//   User  → create for own Team(s) via active UserTeam membership
+//   User  → cannot rename or retire existing statuses
+//
+// How to add a new status (application layer):
+//   Admin:  POST /api/ticket-statuses { label, behavior, teamId? }
+//   User:   POST /api/ticket-statuses { label, behavior, teamId }
+//           (teamId required, must be User's active Team, app verifies via UserTeam)
+//
+// RAW SQL: Two partial unique indexes for label uniqueness (global vs team-scoped)
+// RAW SQL TRIGGER: Block teamId change once referenced by any Ticket
+
+model TicketStatus {
+  id          Int                  @id @default(autoincrement())
+  label       String               @db.VarChar(60)
+  description String?              @db.Text
+  sortOrder   Int                  @default(0)
+  status      MasterDataStatus     @default(ACTIVE)
+  isDefault   Boolean              @default(false) // true = seeded system default
+  behavior    TicketStatusBehavior // Semantic category: OPEN, IN_PROGRESS, ON_HOLD, RESOLVED, CLOSED
+
+  // NULL = global (available to all Teams), set = Team-specific
+  teamId Int?
+  team   Team? @relation("TicketStatusTeam", fields: [teamId], references: [id], onDelete: Restrict)
+
+  // NULL for system-seeded defaults (no user exists at seed time), set for user-created statuses
+  createdById Int?
+  createdBy   User?    @relation("TicketStatusCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tickets Ticket[]
+
+  @@index([status, sortOrder])
+  @@index([teamId, status])
+  @@index([behavior])
+  @@map("ticket_statuses")
+}
+
+// ======================== TICKET (BRD 5.1–5.6, 6.4, 8.1) ========================
+
+model Ticket {
+  id           Int    @id @default(autoincrement())
+  ticketNumber String @unique @db.VarChar(20) // Format: RTS-DDMMYYC
+
+  projectId Int
+  project   Project @relation("TicketProject", fields: [projectId], references: [id], onDelete: Restrict)
+
+  teamId Int
+  team   Team @relation("TicketTeam", fields: [teamId], references: [id], onDelete: Restrict)
+  // Department is derived via Team → Department. No departmentId on Ticket.
+
+  summary     String @db.VarChar(255)
+  description String @db.Text
+
+  priorityId Int
+  priority   PriorityLevel @relation(fields: [priorityId], references: [id], onDelete: Restrict)
+
+  // Dynamic status — references a TicketStatus record (global, primary Team, or active collaborating Team)
+  // RAW SQL TRIGGER: Enforce status.teamId IS NULL OR status.teamId == ticket.teamId OR status.teamId IN active collaborating teams
+  statusId Int
+  status   TicketStatus @relation(fields: [statusId], references: [id], onDelete: Restrict)
+
+  // Sub-tickets (self-relation)
+  // RAW SQL CHECK: parent_ticket_id <> id (no self-parenting)
+  parentTicketId Int?
+  parentTicket   Ticket?  @relation("SubTickets", fields: [parentTicketId], references: [id], onDelete: SetNull)
+  subTickets     Ticket[] @relation("SubTickets")
+
+  // Milestone timestamps — set once on first transition to RESOLVED/CLOSED behavior, never overwritten
+  resolvedAt DateTime?
+  closedAt   DateTime?
+
+  createdById Int
+  createdBy   User     @relation("TicketCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  version Int @default(1) // Optimistic concurrency (BRD 7.2)
+
+  assignees          TicketAssignee[]
+  history            TicketHistory[]
+  timeEntries        TimeEntry[]
+  attachments        TicketAttachment[]
+  customFieldValues  TicketFieldValue[] @relation("TicketCustomFieldValues")
+  collaboratingTeams TicketTeam[]       @relation("TicketTeams")
+
+  @@index([teamId, statusId, priorityId], name: "idx_ticket_team_status_priority")
+  @@index([projectId, teamId, statusId], name: "idx_ticket_project_team_status")
+  @@index([statusId, createdAt], name: "idx_ticket_status_created")
+  @@index([parentTicketId])
+  @@index([createdById])
+  @@index([createdAt])
+  @@index([resolvedAt])
+  @@index([closedAt])
+  @@map("tickets")
+}
+
+// ======================== DAILY TICKET SEQUENCE ========================
+// Concurrency-safe ticketNumber generation — one row per day.
+// Use INSERT...ON CONFLICT DO UPDATE inside a transaction, never COUNT(*).
+
+model DailyTicketSequence {
+  sequenceDate DateTime @id @db.Date
+  lastValue    Int      @default(0)
+
+  @@map("daily_ticket_sequences")
+}
+
+// ======================== TICKET ASSIGNEE (BRD 5.2, 5.3) ========================
+// Assignees must be from same Department as Ticket's Team (not necessarily same Team).
+// RAW SQL: Partial unique index — one active assignee per (ticket, user) WHERE removed_at IS NULL
+// RAW SQL TRIGGER: Enforce assignee.departmentId == ticket.team.departmentId
+
+model TicketAssignee {
+  id Int @id @default(autoincrement())
+
+  ticketId Int
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  userId Int
+  user   User @relation("AssignmentUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  // Contextual team assignment (primary team or an active collaborating team)
+  teamId Int?
+  team   Team? @relation("TicketAssigneeTeam", fields: [teamId], references: [id], onDelete: Restrict)
+
+  assignedById Int
+  assignedBy   User @relation("AssignedByUser", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  assignedAt DateTime  @default(now())
+  removedAt  DateTime? // Soft-remove — row kept for history
+
+  @@index([ticketId, removedAt], name: "idx_assignee_ticket_active")
+  @@index([userId, removedAt], name: "idx_assignee_user_active")
+  @@index([teamId, removedAt], name: "idx_assignee_team_active")
+  @@map("ticket_assignees")
+}
+
+// ======================== TICKET TEAM COLLABORATION ========================
+// Multi-team collaboration: One Ticket has one primary/owning Team (Ticket.teamId),
+// and can have multiple collaborating Teams via TicketTeam.
+// removedAt enables soft-remove — historical collaboration is retained for audit.
+// RAW SQL: Partial unique index for active collaboration (no @@unique here — allows re-joining after removal)
+// RAW SQL TRIGGER: Enforce collaborating team != ticket.teamId (cannot collaborate with self)
+// RAW SQL TRIGGER: Enforce team.departmentId == ticket.team.departmentId (same department rule)
+
+model TicketTeam {
+  id Int @id @default(autoincrement())
+
+  ticketId Int
+  ticket   Ticket @relation("TicketTeams", fields: [ticketId], references: [id], onDelete: Cascade)
+
+  teamId Int
+  team   Team @relation("TeamTickets", fields: [teamId], references: [id], onDelete: Restrict)
+
+  assignedById Int
+  assignedBy   User @relation("TicketTeamAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  assignedAt DateTime  @default(now())
+  removedAt  DateTime? // Soft-remove — row kept for history (NULL = active, set = removed)
+
+  @@index([ticketId, removedAt], name: "idx_ticket_team_ticket_active")
+  @@index([teamId, removedAt], name: "idx_ticket_team_team_active")
+  @@map("ticket_teams")
+}
+
+// ======================== TICKET HISTORY (BRD 8.1) ========================
+// Append-only audit log — rows only INSERTed, never UPDATEd or DELETEd
+
+model TicketHistory {
+  id Int @id @default(autoincrement())
+
+  ticketId Int
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+
+  action TicketHistoryAction
+
+  // Structured transition fields for reporting (plain scalars — decoupled from master-data lifecycles)
+  previousStatusId   Int?                  // TicketStatus ID before the change
+  newStatusId        Int?                  // TicketStatus ID after the change
+  previousBehavior   TicketStatusBehavior? // Semantic behavior category before change (BRD 5.4, item 118)
+  newBehavior        TicketStatusBehavior? // Semantic behavior category after change (BRD 5.4, item 118)
+  previousTeamId     Int?                  // Primary team changes only (Ticket.teamId reassignments)
+  newTeamId          Int?                  // Primary team changes only (collaborator adds/removals use remarks/newValue)
+  previousPriorityId Int?
+  newPriorityId      Int?
+
+  // Generic fallback for other changes (remark content, sub-ticket ref, time-entry summary, etc.)
+  previousValue String? @db.Text
+  newValue      String? @db.Text
+  remarks       String? @db.Text
+
+  updatedById Int
+  updatedBy   User @relation("HistoryUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  updatedAt DateTime @default(now())
+
+  @@index([ticketId, updatedAt], name: "idx_history_ticket_updated")
+  @@index([action])
+  @@map("ticket_history")
+}
+
+// ======================== AUDIT LOG (BRD 8.1, 14.10) ========================
+// Non-ticket scoped audit trail for dynamic master data (PriorityLevel, TicketStatus, etc.)
+// and team membership lifecycle events. Append-only — rows only INSERTed.
+
+model AuditLog {
+  id            Int      @id @default(autoincrement())
+  entityType    String   @db.VarChar(40)  // "PriorityLevel", "TicketStatus", "UserTeam", "Team", "Department", etc.
+  entityId      Int
+  action        String   @db.VarChar(40)  // "CREATED", "RENAMED", "RETIRED", "MEMBERSHIP_ADDED", "MEMBERSHIP_REMOVED", etc.
+  previousValue String?  @db.Text
+  newValue      String?  @db.Text
+  performedById Int
+  performedBy   User     @relation("AuditLogPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  performedAt   DateTime @default(now())
+
+  @@index([entityType, entityId, performedAt])
+  @@index([performedById, performedAt])
+  @@map("audit_log")
+}
+
+// ======================== TIME ENTRY (BRD 8.2) ========================
+// Append-only — corrections via new adjusting entries, not edits
+// RAW SQL CHECK: minutes_spent > 0
+
+model TimeEntry {
+  id Int @id @default(autoincrement())
+
+  ticketId Int
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  userId Int
+  user   User @relation("TimeEntryUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  workDate DateTime
+
+  startTime DateTime?
+  endTime   DateTime?
+
+  minutesSpent Int
+
+  workType TimeEntryWorkType
+
+  note String? @db.Text
+
+  isBillable Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, workDate], name: "idx_time_ticket_work_date")
+  @@index([userId, workDate], name: "idx_time_user_work_date")
+  @@index([userId, workType, workDate], name: "idx_time_user_work_type_date")
+  @@map("time_entries")
+}
+
+// ======================== TICKET ATTACHMENT ========================
+// Metadata for files attached to Tickets (stored in external object storage).
+// Actual binary contents are NEVER stored in PostgreSQL.
+// RAW SQL CHECK: file_size_bytes > 0
+
+model TicketAttachment {
+  id Int @id @default(autoincrement())
+
+  ticketId Int
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  uploadedById Int
+  uploadedBy   User @relation("TicketAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  originalFileName String   @db.VarChar(255)
+  storageKey       String   @unique @db.VarChar(500)
+  mimeType         String   @db.VarChar(150)
+  fileExtension    String?  @db.VarChar(20)
+  fileSizeBytes    BigInt
+  checksum         String?  @db.VarChar(128)
+
+  createdAt DateTime @default(now())
+
+  // Soft deletion fields to preserve auditability
+  deletedAt   DateTime?
+  deletedById Int?
+  deletedBy   User?     @relation("TicketAttachmentDeleter", fields: [deletedById], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt], name: "idx_attachment_ticket_created")
+  @@index([uploadedById, createdAt], name: "idx_attachment_uploader_created")
+  @@index([ticketId, deletedAt], name: "idx_attachment_ticket_deleted")
+  @@map("ticket_attachments")
+}
+
+// ======================== DYNAMIC CUSTOM TICKET FIELDS ========================
+// Metadata/Value (EAV) architecture. Allows Teams and Admins to define arbitrary fields
+// without database migrations or adding physical columns to tickets.
+
+model TicketFieldDefinition {
+  id Int @id @default(autoincrement())
+
+  // NULL = Global field (available to all Teams), set = Team-specific
+  teamId Int?
+  team   Team? @relation("TicketFieldDefinitionTeam", fields: [teamId], references: [id], onDelete: Restrict)
+
+  name        String  @db.VarChar(100)
+  description String? @db.Text
+
+  fieldType TicketFieldType
+
+  isRequired Boolean          @default(false)
+  sortOrder  Int              @default(0)
+  status     MasterDataStatus @default(ACTIVE)
+
+  // Configured options for SELECT and MULTI_SELECT fields (e.g. [{"label": "Production", "value": "prod"}])
+  options Json?
+
+  createdById Int
+  createdBy   User     @relation("TicketFieldDefinitionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  values TicketFieldValue[]
+
+  @@index([teamId, status, sortOrder], name: "idx_field_def_team_status_sort")
+  @@index([status, sortOrder], name: "idx_field_def_status_sort")
+  @@map("ticket_field_definitions")
+}
+
+model TicketFieldValue {
+  id Int @id @default(autoincrement())
+
+  ticketId Int
+  ticket   Ticket @relation("TicketCustomFieldValues", fields: [ticketId], references: [id], onDelete: Cascade)
+
+  fieldDefinitionId Int
+  fieldDefinition   TicketFieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Restrict)
+
+  // Strongly-typed value storage based on fieldType
+  textValue       String?   @db.Text
+  numberValue     BigInt?
+  decimalValue    Decimal?  @db.Decimal(18, 4)
+  booleanValue    Boolean?
+  dateValue       DateTime?
+  // Selected option values for MULTI_SELECT fields (e.g. ["login", "dashboard"])
+  selectedOptions Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ticketId, fieldDefinitionId], name: "uq_ticket_field_value")
+  @@index([fieldDefinitionId], name: "idx_field_value_def")
+  @@index([ticketId], name: "idx_field_value_ticket")
+  @@map("ticket_field_values")
+}
+
+// ======================== RAW SQL MIGRATION CHECKLIST ========================
+// Apply these via raw SQL after prisma migrate:
+//
+// --- TICKET ASSIGNEE ---
+//  1. Partial unique index: uq_assignee_active ON ticket_assignees (ticket_id, user_id) WHERE removed_at IS NULL
+//  2. Trigger: enforce_assignee_team_and_dept — assignee.teamId IS NULL OR assignee.teamId == ticket.teamId OR assignee.teamId IN active collaborating teams; user.departmentId == ticket.team.departmentId
+//
+// --- TICKET ---
+//  3. Trigger: enforce_ticket_status_team — status.teamId IS NULL OR status.teamId == ticket.teamId OR status.teamId IN (SELECT team_id FROM ticket_teams WHERE ticket_id = ticket.id AND removed_at IS NULL)
+//  4. CHECK: parent_ticket_id IS NULL OR parent_ticket_id <> id (no self-parenting)
+//
+// --- DEPARTMENT PROTECTION ---
+//  5. Trigger: prevent_team_department_change — block when Team has tickets, active assignments, or active memberships
+//  6. Trigger: prevent_user_department_change — block when new dept mismatches active team memberships or active assignments
+//
+// --- TIME ENTRY ---
+//  7. CHECK: minutes_spent > 0 on time_entries
+//     CHECK: (start_time IS NULL OR end_time IS NULL OR end_time > start_time) on time_entries
+//
+// --- USER TEAM MEMBERSHIP ---
+//  8. Trigger: validate_user_team_department — User.departmentId == Team.departmentId on user_teams
+//  9. Partial unique index: uq_user_team_active ON user_teams (user_id, team_id) WHERE removed_at IS NULL
+//
+// --- TICKET STATUS ---
+// 10. Partial unique index: uq_ticket_status_global_label ON ticket_statuses (label) WHERE team_id IS NULL
+// 11. Partial unique index: uq_ticket_status_team_label ON ticket_statuses (team_id, label) WHERE team_id IS NOT NULL
+// 12. Trigger: prevent_ticket_status_team_change — block teamId change when referenced by tickets
+//
+// --- TICKET ATTACHMENT ---
+// 13. CHECK: file_size_bytes > 0 on ticket_attachments
+//
+// --- DYNAMIC CUSTOM TICKET FIELDS ---
+// 14. Partial unique index: uq_ticket_field_definition_global_name ON ticket_field_definitions (LOWER(name)) WHERE team_id IS NULL
+// 15. Partial unique index: uq_ticket_field_definition_team_name ON ticket_field_definitions (team_id, LOWER(name)) WHERE team_id IS NOT NULL
+// 16. Trigger: enforce_ticket_field_value_team_scope — fieldDefinition.teamId IS NULL OR fieldDefinition.teamId == ticket.teamId OR fieldDefinition.teamId IN (SELECT team_id FROM ticket_teams WHERE ticket_id = ticket.id AND removed_at IS NULL)
+//
+// --- TICKET TEAM COLLABORATION ---
+// 17. Partial unique index: uq_ticket_team_active ON ticket_teams (ticket_id, team_id) WHERE removed_at IS NULL
+// 18. Trigger: enforce_ticket_team_not_primary — block adding ticket's primary team as collaborating team
+// 19. Trigger: enforce_ticket_team_department — collaborating team.departmentId == ticket.team.departmentId
+//
+// --- PERMISSION SYSTEM (BRD v14, Section 3.5) ---
+// 20. After running seed-permissions.js backfill, ALTER TABLE users ALTER COLUMN role_id SET NOT NULL;
+// 21. Then update schema.prisma: change roleId Int? → roleId Int, userRole Role? → userRole Role
+// 22. After all code is migrated off legacyRole, DROP the legacy "role" column and remove LegacyRole enum from schema
+//
+// ======================== DEFAULT STATUS SEED (run after migration) ========================
+// These 5 global default statuses must exist in ticket_statuses.
+// Run this SQL once after creating the table. It is idempotent (ON CONFLICT skips duplicates).
+//
+//   INSERT INTO ticket_statuses (label, description, sort_order, status, is_default, behavior, team_id, created_by_id, created_at, updated_at)
+//   VALUES
+//     ('Open',        'Ticket has been created and is awaiting action.',       1, 'ACTIVE', true, 'OPEN',        NULL, NULL, NOW(), NOW()),
+//     ('In Progress', 'Ticket is actively being worked on.',                   2, 'ACTIVE', true, 'IN_PROGRESS', NULL, NULL, NOW(), NOW()),
+//     ('On Hold',     'Ticket work is temporarily paused.',                    3, 'ACTIVE', true, 'ON_HOLD',     NULL, NULL, NOW(), NOW()),
+//     ('Resolved',    'Ticket issue has been resolved, pending closure.',      4, 'ACTIVE', true, 'RESOLVED',    NULL, NULL, NOW(), NOW()),
+//     ('Closed',      'Ticket is fully closed.',                               5, 'ACTIVE', true, 'CLOSED',      NULL, NULL, NOW(), NOW())
+//   ON CONFLICT DO NOTHING;
+//
+// After seeding, Teams can add their own statuses:
+//
+//   -- Admin adds a global status (available to all Teams)
+//   INSERT INTO ticket_statuses (label, behavior, sort_order, status, is_default, team_id, created_by_id, created_at, updated_at)
+//   VALUES ('Waiting for Approval', 'ON_HOLD', 6, 'ACTIVE', false, NULL, <admin_user_id>, NOW(), NOW());
+//
+//   -- Admin adds a Team-specific status
+//   INSERT INTO ticket_statuses (label, behavior, sort_order, status, is_default, team_id, created_by_id, created_at, updated_at)
+//   VALUES ('Code Review', 'IN_PROGRESS', 10, 'ACTIVE', false, <team_id>, <admin_user_id>, NOW(), NOW());
+//
+//   -- User adds a status for their own Team (app must verify active UserTeam membership first)
+//   INSERT INTO ticket_statuses (label, behavior, sort_order, status, is_default, team_id, created_by_id, created_at, updated_at)
+//   VALUES ('Testing', 'IN_PROGRESS', 11, 'ACTIVE', false, <user_team_id>, <user_id>, NOW(), NOW());
+//
+// To get available statuses for a Team's ticket dropdown:
+//   SELECT * FROM ticket_statuses
+//   WHERE status = 'ACTIVE'
+//     AND (team_id IS NULL OR team_id = <target_team_id>)
+//   ORDER BY sort_order;

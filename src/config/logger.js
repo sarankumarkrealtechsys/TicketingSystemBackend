@@ -1,16 +1,16 @@
-const pino = require('pino');
-const { env } = require('./env');
+const pino = require("pino");
+const { env } = require("./env");
 
 const logger = pino({
-  level: env.NODE_ENV === 'production' ? 'info' : 'debug',
+  level: env.NODE_ENV === "production" ? "info" : "debug",
   transport:
-    env.NODE_ENV !== 'production'
+    env.NODE_ENV !== "production"
       ? {
-          target: 'pino-pretty',
+          target: "pino-pretty",
           options: {
             colorize: true,
-            translateTime: 'SYS:standard',
-            ignore: 'pid,hostname',
+            translateTime: "SYS:standard",
+            ignore: "pid,hostname",
           },
         }
       : undefined,

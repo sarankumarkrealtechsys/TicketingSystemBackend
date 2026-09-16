@@ -1,23 +1,90 @@
-const { prisma } = require('../../lib/prisma');
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const { env } = require("../../config/env");
+const { prisma } = require("../../lib/prisma");
 
 /**
- * Authentication database service
- * Directly handles persistence and queries for user accounts
+ * Parses JWT expiration string (e.g. '30d', '15m') into milliseconds.
  */
-const findUserByEmail = async (email) => {
-  // Prisma database query placeholder
-  // When user model is migrated: return prisma.user.findUnique({ where: { email } });
-  if (!email) return null;
-  return prisma ? null : null;
+const parseExpiresInMs = (expiresIn) => {
+  const match = expiresIn.match(/^(\d+)([smhd])$/);
+  if (!match) return 30 * 24 * 60 * 60 * 1000; // default 30 days
+  const val = parseInt(match[1], 10);
+  const unit = match[2];
+  const multipliers = {
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+  };
+  return val * (multipliers[unit] || multipliers.d);
 };
 
-const createUser = async (userData) => {
-  // Prisma database query placeholder
-  // When user model is migrated: return prisma.user.create({ data: userData });
-  return { id: 1, ...userData, createdAt: new Date() };
+/**
+ * Standard cookie configuration for secure token delivery.
+ */
+const getCookieOptions = () => ({
+  httpOnly: true,
+  secure: env.NODE_ENV === "production",
+  sameSite: "strict",
+  maxAge: parseExpiresInMs(env.JWT_EXPIRES_IN),
+  path: "/",
+});
+
+/**
+ * Cookie options for clearing the auth cookie upon logout.
+ */
+const getClearCookieOptions = () => ({
+  httpOnly: true,
+  secure: env.NODE_ENV === "production",
+  sameSite: "strict",
+  path: "/",
+});
+
+/**
+ * Finds user by username (case-sensitive unique lookup).
+ * Email is never used for login.
+ */
+const findUserByUsername = async (username) => {
+  return prisma.user.findUnique({
+    where: { username },
+    include: {
+      department: {
+        select: { id: true, name: true },
+      },
+      userRole: {
+        select: { id: true, name: true },
+      },
+    },
+  });
+};
+
+/**
+ * Compares plaintext password against stored bcrypt hash.
+ */
+const verifyPassword = async (plainPassword, hashedPassword) => {
+  return bcrypt.compare(plainPassword, hashedPassword);
+};
+
+/**
+ * Generates an Access Token with minimal payload (userId, roleId).
+ * Permissions are resolved dynamically per-request.
+ */
+const generateAccessToken = (user) => {
+  return jwt.sign(
+    {
+      userId: user.id,
+      roleId: user.roleId,
+    },
+    env.JWT_SECRET,
+    { expiresIn: env.JWT_EXPIRES_IN },
+  );
 };
 
 module.exports = {
-  findUserByEmail,
-  createUser,
+  findUserByUsername,
+  verifyPassword,
+  generateAccessToken,
+  getCookieOptions,
+  getClearCookieOptions,
 };

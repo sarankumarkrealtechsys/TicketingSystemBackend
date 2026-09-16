@@ -1,17 +1,17 @@
-const { createClient } = require('redis');
-const { env } = require('../config/env');
-const { logger } = require('../config/logger');
+const { createClient } = require("redis");
+const { env } = require("../config/env");
+const { logger } = require("../config/logger");
 
 const redisClient = createClient({
   url: env.REDIS_URL,
 });
 
-redisClient.on('error', (err) => {
+redisClient.on("error", (err) => {
   logger.warn(`Redis Client Warning: ${err.message || err}`);
 });
 
-redisClient.on('connect', () => {
-  logger.info('Redis connected successfully');
+redisClient.on("connect", () => {
+  logger.info("Redis connected successfully");
 });
 
 const connectRedis = async () => {

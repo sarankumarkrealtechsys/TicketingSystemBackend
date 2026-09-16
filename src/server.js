@@ -1,9 +1,9 @@
-const http = require('http');
-const app = require('./app');
-const { env } = require('./config/env');
-const { logger } = require('./config/logger');
-const { initSocketIO } = require('./sockets');
-const { connectRedis } = require('./lib/redis');
+const http = require("http");
+const app = require("./app");
+const { env } = require("./config/env");
+const { logger } = require("./config/logger");
+const { initSocketIO } = require("./sockets");
+const { connectRedis } = require("./lib/redis");
 
 const server = http.createServer(app);
 
@@ -21,21 +21,21 @@ const startServer = async () => {
       logger.info(`Swagger API docs: http://localhost:${env.PORT}/api-docs`);
     });
   } catch (error) {
-    logger.error(error, 'Failed to start server');
+    logger.error(error, "Failed to start server");
     process.exit(1);
   }
 };
 
 // Graceful shutdown
 const gracefulShutdown = () => {
-  logger.info('Received shutdown signal, closing server gracefully...');
+  logger.info("Received shutdown signal, closing server gracefully...");
   server.close(() => {
-    logger.info('Server closed');
+    logger.info("Server closed");
     process.exit(0);
   });
 };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", gracefulShutdown);
 
 startServer();

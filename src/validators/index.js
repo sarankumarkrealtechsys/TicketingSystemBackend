@@ -1,4 +1,4 @@
-const { ZodError } = require('zod');
+const { ZodError } = require("zod");
 
 const validate = (schema) => {
   return async (req, res, next) => {
@@ -16,15 +16,15 @@ const validate = (schema) => {
     } catch (error) {
       if (error instanceof ZodError) {
         return res.status(400).json({
-          status: 'error',
-          message: 'Validation failed',
+          status: "error",
+          message: "Validation failed",
           errors: error.errors.map((e) => ({
-            field: e.path.join('.'),
+            field: e.path.join("."),
             message: e.message,
           })),
         });
       }
-      return res.status(400).json({ status: 'error', message: 'Bad request' });
+      return res.status(400).json({ status: "error", message: "Bad request" });
     }
   };
 };

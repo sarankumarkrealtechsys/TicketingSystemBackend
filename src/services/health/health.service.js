@@ -1,4 +1,4 @@
-const { prisma } = require('../../lib/prisma');
+const { prisma } = require("../../lib/prisma");
 
 /**
  * Health database service
@@ -8,16 +8,16 @@ const checkDatabaseHealth = async () => {
   try {
     // Check database connectivity via Prisma query
     await prisma.$queryRaw`SELECT 1`;
-    return { database: 'connected' };
+    return { database: "connected" };
   } catch (error) {
-    return { database: 'disconnected', error: error.message };
+    return { database: "disconnected", error: error.message };
   }
 };
 
 const getRecentHealthLogs = async (limit = 5) => {
   return prisma.healthCheck.findMany({
     take: limit,
-    orderBy: { checkedAt: 'desc' },
+    orderBy: { checkedAt: "desc" },
   });
 };
 

@@ -1,83 +1,143 @@
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const { env } = require('../../config/env');
-const authService = require('../../services/auth/auth.service');
+const { env } = require("../../config/env");
+const authService = require("../../services/auth/auth.service");
+const { getPermissions } = require("../../services/auth/permission.service");
 
 /**
- * Authentication Controller
- * Contains business logic (hashing, token signing), handles req/res, and calls DB services
+ * Handles user login.
+ * Validates credentials using username and password only.
+ * Issues a 30-day JWT set inside an httpOnly, Secure, SameSite=Strict cookie.
+ * On invalid credentials (wrong username OR wrong password), returns an identical
+ * generic error body to prevent field-level enumeration.
  */
 const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { username, password } = req.body;
 
-    // Call DB service to find user
-    const user = await authService.findUserByEmail(email);
+    const user = await authService.findUserByUsername(username);
     if (!user) {
-      // Business logic: credential check placeholder
-      return res.status(200).json({
-        status: 'success',
-        message: 'Login successful (template)',
-        token: jwt.sign({ id: 1, role: 'USER' }, env.JWT_ACCESS_SECRET, { expiresIn: env.JWT_ACCESS_EXPIRES_IN }),
+      return res.status(401).json({
+        status: "error",
+        message: "Invalid credentials",
       });
     }
 
-    // Business logic: password comparison
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await authService.verifyPassword(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
+      return res.status(401).json({
+        status: "error",
+        message: "Invalid credentials",
+      });
     }
 
-    // Business logic: JWT token signing
-    const token = jwt.sign(
-      { id: user.id, role: user.role || 'USER' },
-      env.JWT_ACCESS_SECRET,
-      { expiresIn: env.JWT_ACCESS_EXPIRES_IN }
-    );
-
-    return res.status(200).json({ status: 'success', token });
-  } catch (error) {
-    next(error);
-  }
-};
-
-const register = async (req, res, next) => {
-  try {
-    const { name, email, password } = req.body;
-
-    // Call DB service to check existing user
-    const existing = await authService.findUserByEmail(email);
-    if (existing) {
-      return res.status(409).json({ status: 'error', message: 'User already exists' });
+    if (user.status !== "ACTIVE") {
+      return res.status(401).json({
+        status: "error",
+        message: "Invalid credentials",
+      });
     }
 
-    // Business logic: hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    if (!user.userRole) {
+      return res.status(500).json({
+        status: "error",
+        message: "Account role configuration is invalid",
+      });
+    }
 
-    // Call DB service to persist user
-    const newUser = await authService.createUser({
-      name,
-      email,
-      password: hashedPassword,
-    });
+    // Generate 30-day access token
+    const token = authService.generateAccessToken(user);
 
-    return res.status(201).json({
-      status: 'success',
-      message: 'User registered successfully',
-      userId: newUser.id,
+    // Set token in httpOnly, Secure, SameSite=Strict cookie
+    res.cookie(env.COOKIE_NAME, token, authService.getCookieOptions());
+
+    // Resolve permissions for the user
+    const permissions = await getPermissions(user, req);
+
+    return res.status(200).json({
+      status: "success",
+      message: "Login successful",
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          email: user.email,
+          roleId: user.roleId,
+          role: {
+            id: user.userRole.id,
+            name: user.userRole.name,
+          },
+          departmentId: user.departmentId,
+          department: user.department,
+        },
+        permissions,
+      },
     });
   } catch (error) {
     next(error);
   }
 };
 
-const logout = async (req, res, next) => {
+/**
+ * Handles session verification.
+ * Protected by authenticate middleware.
+ * Returns current authenticated user and resolved permissions.
+ */
+const getMe = async (req, res, next) => {
   try {
-    // Business logic: token invalidation / cookie clearing
-    return res.status(200).json({ status: 'success', message: 'Logged out successfully' });
+    const user = req.user;
+
+    if (!user.userRole) {
+      return res.status(401).json({
+        status: "error",
+        message: "Unauthorized: Account role configuration is invalid",
+      });
+    }
+
+    const permissions = await getPermissions(user, req);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          email: user.email,
+          roleId: user.roleId,
+          role: {
+            id: user.userRole.id,
+            name: user.userRole.name,
+          },
+          departmentId: user.departmentId,
+          department: user.department,
+        },
+        permissions,
+      },
+    });
   } catch (error) {
     next(error);
   }
 };
 
-module.exports = { login, register, logout };
+/**
+ * Handles user logout.
+ * Clears the auth cookie server-side with matching security options.
+ */
+const logout = async (_req, res, next) => {
+  try {
+    res.clearCookie(env.COOKIE_NAME, authService.getClearCookieOptions());
+
+    return res.status(200).json({
+      status: "success",
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  login,
+  getMe,
+  logout,
+};

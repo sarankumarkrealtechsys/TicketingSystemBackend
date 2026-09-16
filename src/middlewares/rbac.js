@@ -1,22 +1,157 @@
-const authorizeRoles = (...allowedRoles) => {
-  return (req, res, next) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ status: 'error', message: 'Forbidden: Insufficient role permissions' });
+const { prisma } = require("../lib/prisma");
+const { getPermissions } = require("../services/auth/permission.service");
+
+/**
+ * RBAC Authorization Middleware Factory
+ * Reusable gate for protecting endpoints based on granular permissions and scopes.
+ *
+ * Evaluation Pipeline:
+ * 1. Resolves permissions for req.user (using per-request cache).
+ * 2. Step 1: Does the user's role hold the required permission key at all?
+ *    - If NO → Denied (403). Log to AuditLog (who, required key, when).
+ * 3. Step 2: Does the user have GLOBAL scope for this permission?
+ *    - If YES → Allowed immediately (proceed to next).
+ * 4. Step 3: If only non-GLOBAL scopes are granted:
+ *    - Evaluate scopeResolverFn(req.user, targetResource, req).
+ *    - If it returns true → Allowed.
+ *    - If it returns false (or no resolver provided) → Denied (403).
+ *      Log to AuditLog (who, required key, attempted scopes, when).
+ *
+ * @param {string} key - Permission key (e.g. 'TICKET_CREATE', 'USER_VIEW')
+ * @param {Function} [scopeResolverFn] - Optional resolver (user, resource, req) => Promise<boolean>|boolean
+ * @returns {Function} Express middleware handler
+ */
+const requirePermission = (key, scopeResolverFn = null) => {
+  return async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized: Authentication required",
+        });
+      }
+
+      // Resolve full permission map for user's role (request-cached)
+      const userPermissions = await getPermissions(req.user, req);
+      const grantedScopes = userPermissions[key];
+
+      // ── Step 1: Check if role holds permission at all ───────────────────
+      if (!grantedScopes || grantedScopes.length === 0) {
+        // Log denial to AuditLog
+        await prisma.auditLog.create({
+          data: {
+            entityType: "PERMISSION",
+            entityId: 0,
+            action: "PERMISSION_DENIED",
+            previousValue: null,
+            newValue: JSON.stringify({
+              requiredPermission: key,
+              reason: "Role does not hold permission",
+              attemptedPath: req.originalUrl,
+            }),
+            performedById: req.user.id,
+          },
+        });
+
+        return res.status(403).json({
+          status: "error",
+          message: "Forbidden: Insufficient permissions",
+        });
+      }
+
+      // ── Step 2: Check for GLOBAL scope ──────────────────────────────────
+      if (grantedScopes.includes("GLOBAL")) {
+        return next();
+      }
+
+      // ── Step 3: Check Scoped Permission ─────────────────────────────────
+      // If user holds only scoped access (e.g. OWN, TEAM, ASSIGNED),
+      const targetResource = req.resource || { ...req.params, ...req.body };
+
+      let isAllowed = false;
+      if (typeof scopeResolverFn === "function") {
+        isAllowed = await scopeResolverFn(req.user, targetResource, req);
+      }
+
+      if (!isAllowed) {
+        // Log scoped denial to AuditLog
+        const resourceId =
+          targetResource && typeof targetResource.id === "number"
+            ? targetResource.id
+            : 0;
+
+        await prisma.auditLog.create({
+          data: {
+            entityType: "PERMISSION",
+            entityId: resourceId,
+            action: "PERMISSION_DENIED",
+            previousValue: null,
+            newValue: JSON.stringify({
+              requiredPermission: key,
+              attemptedScopes: grantedScopes,
+              reason: "Resource out of granted scope",
+              attemptedPath: req.originalUrl,
+            }),
+            performedById: req.user.id,
+          },
+        });
+
+        return res.status(403).json({
+          status: "error",
+          message: "Forbidden: Insufficient scope permissions",
+        });
+      }
+
+      next();
+    } catch (error) {
+      next(error);
     }
-    next();
   };
 };
 
-const authorizePermissions = (...requiredPermissions) => {
-  return (req, res, next) => {
-    const userPermissions = req.user?.permissions || [];
-    const hasAll = requiredPermissions.every((perm) => userPermissions.includes(perm));
+const requirePermissionKey = (key) => {
+  return async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized: Authentication required",
+        });
+      }
 
-    if (!req.user || !hasAll) {
-      return res.status(403).json({ status: 'error', message: 'Forbidden: Missing required permissions' });
+      const userPermissions = await getPermissions(req.user, req);
+      const grantedScopes = userPermissions[key];
+
+      if (!grantedScopes || grantedScopes.length === 0) {
+        await prisma.auditLog.create({
+          data: {
+            entityType: "PERMISSION",
+            entityId: 0,
+            action: "PERMISSION_DENIED",
+            previousValue: null,
+            newValue: JSON.stringify({
+              requiredPermission: key,
+              reason: "Role does not hold permission",
+              attemptedPath: req.originalUrl,
+            }),
+            performedById: req.user.id,
+          },
+        });
+
+        return res.status(403).json({
+          status: "error",
+          message: "Forbidden: Insufficient permissions",
+        });
+      }
+
+      next();
+    } catch (error) {
+      next(error);
     }
-    next();
   };
 };
 
-module.exports = { authorizeRoles, authorizePermissions };
+module.exports = {
+  requirePermission,
+  requirePermissionKey,
+};
