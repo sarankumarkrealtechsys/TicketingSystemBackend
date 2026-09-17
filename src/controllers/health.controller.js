@@ -1,4 +1,5 @@
 const { prisma } = require("../lib/prisma");
+const { redisClient } = require("../lib/redis");
 
 /**
  * Health Controller (Direct DB Operations)
@@ -14,7 +15,7 @@ const getHealth = async (req, res, next) => {
       timestamp: new Date().toISOString(),
     };
 
-    // If detailed requested, execute DB health check directly
+    // If detailed requested, execute DB & Redis health check directly
     if (isDetailed) {
       try {
         await prisma.$queryRaw`SELECT 1`;
@@ -23,6 +24,9 @@ const getHealth = async (req, res, next) => {
         healthStatus.database = "disconnected";
         healthStatus.error = error.message;
       }
+
+      healthStatus.redis =
+        redisClient && redisClient.isOpen ? "connected" : "disconnected";
     }
 
     return res.status(200).json(healthStatus);

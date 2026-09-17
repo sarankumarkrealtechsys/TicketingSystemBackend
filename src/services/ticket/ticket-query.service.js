@@ -53,11 +53,48 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
   if (query.priorityId) where.priorityId = Number(query.priorityId);
   if (query.projectId) where.projectId = Number(query.projectId);
 
+  if (query.assigneeId) {
+    where.assignees = {
+      some: {
+        userId: Number(query.assigneeId),
+        removedAt: null,
+      },
+    };
+  }
+
+  if (query.startDate || query.endDate) {
+    where.createdAt = {};
+    if (query.startDate) where.createdAt.gte = new Date(query.startDate);
+    if (query.endDate) where.createdAt.lte = new Date(query.endDate);
+  }
+
+  if (query.search) {
+    const s = query.search.trim();
+    where.AND = where.AND || [];
+    where.AND.push({
+      OR: [
+        { ticketNumber: { contains: s, mode: "insensitive" } },
+        { summary: { contains: s, mode: "insensitive" } },
+        {
+          assignees: {
+            some: {
+              removedAt: null,
+              user: { name: { contains: s, mode: "insensitive" } },
+            },
+          },
+        },
+      ],
+    });
+  }
+
   const page = Math.max(1, Number(query.page) || 1);
-  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
+  const pageSize = Math.min(
+    100,
+    Math.max(1, Number(query.pageSize || query.limit) || 20),
+  );
   const skip = (page - 1) * pageSize;
 
-  const [total, tickets] = await Promise.all([
+  const [total, rawTickets] = await Promise.all([
     prisma.ticket.count({ where }),
     prisma.ticket.findMany({
       where,
@@ -69,6 +106,7 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
         team: { select: { id: true, name: true, departmentId: true } },
         priority: { select: { id: true, label: true, sortOrder: true } },
         status: { select: { id: true, label: true, behavior: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
         assignees: {
           where: { removedAt: null },
           select: {
@@ -76,9 +114,31 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
             user: { select: { id: true, name: true, email: true } },
           },
         },
+        _count: {
+          select: { subTickets: true },
+        },
       },
     }),
   ]);
+
+  const now = Date.now();
+  const tickets = rawTickets.map((t) => {
+    const endMs = t.closedAt ? new Date(t.closedAt).getTime() : now;
+    const diffMs = Math.max(0, endMs - new Date(t.createdAt).getTime());
+    const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+
+    return {
+      ...t,
+      subTicketsCount: t._count?.subTickets || 0,
+      age: {
+        hours: totalHours,
+        days,
+        formatted: days > 0 ? `${days}d ${hours}h` : `${totalHours}h`,
+      },
+    };
+  });
 
   return {
     tickets,

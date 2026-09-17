@@ -46,11 +46,11 @@ router.get(
   userAccountController.getUserProfile,
 );
 
-// PATCH /api/users/:userId — Edit user (Department, Role, Status)
+// PATCH /api/users/:userId — Edit user (Admin GLOBAL, User OWN)
 router.patch(
   "/:userId",
   authenticate,
-  requirePermission("USER_UPDATE"),
+  requirePermission("USER_UPDATE", resolveOwn),
   validate(updateUserSchema),
   userAccountController.updateUser,
 );

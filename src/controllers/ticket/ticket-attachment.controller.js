@@ -45,7 +45,12 @@ const downloadAttachment = async (req, res, next) => {
     res.setHeader("Content-Length", attachment.fileSizeBytes);
 
     const stream = fs.createReadStream(absolutePath);
-    stream.on("error", (err) => next(err));
+    stream.on("error", (err) => {
+      if (!res.headersSent) {
+        return next(err);
+      }
+      res.end();
+    });
     stream.pipe(res);
   } catch (error) {
     next(error);

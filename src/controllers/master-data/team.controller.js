@@ -25,7 +25,10 @@ const createTeam = async (req, res, next) => {
     }
 
     const existingTeamInDept = await prisma.team.findFirst({
-      where: { departmentId, name },
+      where: {
+        departmentId,
+        name: { equals: name.trim(), mode: "insensitive" },
+      },
     });
     if (existingTeamInDept) {
       throw new AppError("A team with this name already exists in this department", 400);
@@ -191,11 +194,11 @@ const updateTeam = async (req, res, next) => {
     }
 
     const targetDeptId = departmentId || existing.departmentId;
-    if (name && (name !== existing.name || departmentId !== undefined)) {
+    if (name && (name.trim().toLowerCase() !== existing.name.toLowerCase() || departmentId !== undefined)) {
       const duplicate = await prisma.team.findFirst({
         where: {
           departmentId: targetDeptId,
-          name,
+          name: { equals: name.trim(), mode: "insensitive" },
           NOT: { id },
         },
       });

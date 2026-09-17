@@ -11,6 +11,7 @@ const { upload } = require("../../middlewares/upload");
 const { uploadRateLimiter } = require("../../middlewares/rateLimiter");
 const {
   createTicketSchema,
+  updateTicketSchema,
   ticketQuerySchema,
   ticketIdParamSchema,
   addAssigneeSchema,
@@ -304,6 +305,15 @@ router.get(
   validate(ticketIdParamSchema),
   requirePermission("TICKET_VIEW", resolveTicketView),
   ticketController.getTicketById,
+);
+
+// PATCH /api/tickets/:id — Update ticket summary, description, and custom fields (Admin GLOBAL, User ASSIGNED)
+router.patch(
+  "/:id",
+  authenticate,
+  requirePermission("TICKET_UPDATE", resolveTicketAssignee),
+  validate(updateTicketSchema),
+  ticketController.updateTicket,
 );
 
 // POST /api/tickets/:id/attachments — Upload ticket attachment

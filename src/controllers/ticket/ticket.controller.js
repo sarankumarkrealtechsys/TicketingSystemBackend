@@ -1,4 +1,5 @@
 const ticketCreateService = require("../../services/ticket/ticket-create.service");
+const ticketUpdateService = require("../../services/ticket/ticket-update.service");
 const ticketQueryService = require("../../services/ticket/ticket-query.service");
 const ticketAssigneeService = require("../../services/ticket/ticket-assignee.service");
 const ticketReassignService = require("../../services/ticket/ticket-reassign.service");
@@ -356,8 +357,33 @@ const addRemark = async (req, res, next) => {
   }
 };
 
+const updateTicket = async (req, res, next) => {
+  try {
+    const userPermissions = await getPermissions(req.user, req);
+    const isGlobalScope = userPermissions["TICKET_UPDATE"]?.includes("GLOBAL");
+
+    const data = await ticketUpdateService.updateTicket(
+      Number(req.params.id),
+      req.body,
+      req.user,
+      isGlobalScope,
+    );
+
+    await invalidateCachePattern("ticket-stats:*");
+
+    return res.status(200).json({
+      status: "success",
+      message: "Ticket updated successfully",
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createTicket,
+  updateTicket,
   listTickets,
   getTicketById,
   getTicketStats,

@@ -83,8 +83,13 @@ const ticketQuerySchema = {
     statusId: z.coerce.number().int().positive().optional(),
     priorityId: z.coerce.number().int().positive().optional(),
     projectId: z.coerce.number().int().positive().optional(),
+    assigneeId: z.coerce.number().int().positive().optional(),
+    search: z.string().trim().optional(),
+    startDate: z.string().datetime({ message: "startDate must be a valid ISO-8601 date string" }).optional(),
+    endDate: z.string().datetime({ message: "endDate must be a valid ISO-8601 date string" }).optional(),
     page: z.coerce.number().int().min(1).optional().default(1),
     pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
   }),
 };
 
@@ -268,8 +273,48 @@ const addRemarkSchema = {
   }),
 };
 
+const updateTicketSchema = {
+  params: z.object({
+    id: z.coerce
+      .number({ required_error: "Ticket ID is required" })
+      .int("Ticket ID must be an integer")
+      .positive("Ticket ID must be a positive number"),
+  }),
+  body: z.object({
+    summary: z
+      .string()
+      .trim()
+      .min(1, "Summary cannot be empty")
+      .max(255, "Summary cannot exceed 255 characters")
+      .optional(),
+    description: z
+      .string()
+      .trim()
+      .min(1, "Description cannot be empty")
+      .optional(),
+    version: z.coerce
+      .number()
+      .int("Version must be an integer")
+      .positive("Version must be a positive number")
+      .optional(),
+    remarks: z.string().trim().optional(),
+    customFields: z
+      .array(
+        z.object({
+          fieldDefinitionId: z.coerce
+            .number({ required_error: "fieldDefinitionId is required" })
+            .int()
+            .positive(),
+          value: z.any({ required_error: "value is required" }),
+        }),
+      )
+      .optional(),
+  }),
+};
+
 module.exports = {
   createTicketSchema,
+  updateTicketSchema,
   ticketQuerySchema,
   ticketIdParamSchema,
   addAssigneeSchema,

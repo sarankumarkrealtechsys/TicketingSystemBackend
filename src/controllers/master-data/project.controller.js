@@ -15,7 +15,9 @@ const createProject = async (req, res, next) => {
     const { name, description, status } = req.body;
     const adminUserId = req.user.id;
 
-    const existing = await prisma.project.findUnique({ where: { name } });
+    const existing = await prisma.project.findFirst({
+      where: { name: { equals: name.trim(), mode: "insensitive" } },
+    });
     if (existing) {
       throw new AppError("A project with this name already exists", 400);
     }
@@ -120,9 +122,14 @@ const updateProject = async (req, res, next) => {
       throw new AppError("Project not found", 404);
     }
 
-    if (name && name !== existing.name) {
-      const duplicate = await prisma.project.findUnique({ where: { name } });
-      if (duplicate && duplicate.id !== id) {
+    if (name && name.trim().toLowerCase() !== existing.name.toLowerCase()) {
+      const duplicate = await prisma.project.findFirst({
+        where: {
+          name: { equals: name.trim(), mode: "insensitive" },
+          NOT: { id },
+        },
+      });
+      if (duplicate) {
         throw new AppError("A project with this name already exists", 400);
       }
     }

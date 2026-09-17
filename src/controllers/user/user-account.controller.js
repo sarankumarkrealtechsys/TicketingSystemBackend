@@ -175,6 +175,16 @@ const updateUser = async (req, res, next) => {
       throw new AppError("User not found", 404);
     }
 
+    // Non-admin (OWN scope) callers can only update safe fields (name, password)
+    if (!req.isGlobalScope) {
+      if (departmentId !== undefined || roleId !== undefined || status !== undefined) {
+        throw new AppError(
+          "Forbidden: Only administrators can modify role, department, or account status",
+          403,
+        );
+      }
+    }
+
     if (email && email !== existingUser.email) {
       const emailTaken = await prisma.user.findUnique({ where: { email } });
       if (emailTaken) throw new AppError("Email is already in use", 400);
