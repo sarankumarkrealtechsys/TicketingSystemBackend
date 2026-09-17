@@ -89,6 +89,9 @@ const PERMISSIONS = [
 
   // Role management
   { key: 'ROLE_MANAGE',              description: 'Create, update, and manage roles and their permissions',      category: 'Role' },
+
+  // System settings
+  { key: 'SYSTEM_SETTINGS_MANAGE',   description: 'Manage global application settings and configuration',         category: 'System' },
 ];
 
 const ADMIN_PERMISSIONS = PERMISSIONS.map((p) => ({
@@ -104,15 +107,16 @@ const USER_PERMISSIONS = [
   { key: 'PROJECT_VIEW',             scope: 'TEAM' },
   { key: 'STATUS_CREATE',            scope: 'TEAM' },
   { key: 'TICKET_CREATE',            scope: 'TEAM' },
-  { key: 'TICKET_ASSIGN',            scope: 'OWN' },
   { key: 'TICKET_VIEW',              scope: 'TEAM' },
   { key: 'TICKET_UPDATE',            scope: 'ASSIGNED' },
+  { key: 'TICKET_ASSIGN',            scope: 'OWN' },
   { key: 'TICKET_CHANGE_STATUS',     scope: 'ASSIGNED' },
   { key: 'TICKET_CHANGE_PRIORITY',   scope: 'ASSIGNED' },
   { key: 'TICKET_CREATE_SUBTICKET',  scope: 'OWN' },
   { key: 'TICKET_CREATE_SUBTICKET',  scope: 'ASSIGNED' },
   { key: 'TICKET_CLOSE',             scope: 'ASSIGNED' },
   { key: 'TICKET_ADD_REMARK',        scope: 'ASSIGNED' },
+  { key: 'TICKET_ATTACHMENT_MANAGE', scope: 'OWN' },
   { key: 'TICKET_ATTACHMENT_MANAGE', scope: 'ASSIGNED' },
   { key: 'TICKET_LOG_TIME',          scope: 'OWN' },
   { key: 'TICKET_HISTORY_VIEW',      scope: 'TEAM' },
@@ -264,6 +268,46 @@ async function seedPermissions(adminUser) {
         count++;
       }
       console.log(`  ✓ ${roleName}: ${count} mappings upserted.`);
+
+      // ─────────────────────────────────────────────────────────────────────────────
+      // CRITICAL ARCHITECTURE RULE / PRUNING WARNING:
+      // USER_PERMISSIONS and ADMIN_PERMISSIONS arrays above are the SINGLE SOURCE
+      // OF TRUTH for role permissions.
+      //
+      // Any permission grant or scope upserted directly into the live database
+      // without being mirrored in USER_PERMISSIONS or ADMIN_PERMISSIONS WILL BE
+      // SILENTLY DELETED by the pruning loop below whenever seed.js is run!
+      //
+      // If adding or widening a permission for any role, ALWAYS update the seed arrays
+      // first before running seeds or live DB syncs.
+      // ─────────────────────────────────────────────────────────────────────────────
+      // Prune stale role_permissions strictly for this specific roleId
+      const desiredMappings = mappings
+        .map((m) => {
+          const perm = permByKey[m.key];
+          return perm ? { permissionId: perm.id, scope: m.scope || null } : null;
+        })
+        .filter(Boolean);
+
+      const existingRPs = await tx.rolePermission.findMany({
+        where: { roleId },
+      });
+
+      let prunedCount = 0;
+      for (const existing of existingRPs) {
+        const isKept = desiredMappings.some(
+          (d) => d.permissionId === existing.permissionId && d.scope === existing.scope
+        );
+        if (!isKept) {
+          await tx.rolePermission.delete({
+            where: { id: existing.id },
+          });
+          prunedCount++;
+        }
+      }
+      if (prunedCount > 0) {
+        console.log(`  ✓ ${roleName}: ${prunedCount} stale mappings pruned.`);
+      }
     };
 
     await upsertRolePermissions(adminRole.id, 'ADMIN', ADMIN_PERMISSIONS);

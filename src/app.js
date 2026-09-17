@@ -9,7 +9,7 @@ const { swaggerSpec } = require("./config/swagger");
 const { apiRateLimiter } = require("./middlewares/rateLimiter");
 const { errorHandler } = require("./middlewares/errorHandler");
 const routes = require("./routes");
-const healthRoutes = require("./routes/health/health.routes");
+const healthRoutes = require("./routes/health.routes");
 
 const app = express();
 
@@ -25,7 +25,7 @@ app.use(
 );
 
 // Body parsers
-app.use(express.json());
+app.use(express.json({ limit: "500kb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Cookie parser

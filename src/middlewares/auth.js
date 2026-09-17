@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const { env } = require("../config/env");
 const { prisma } = require("../lib/prisma");
+const { isTokenBlacklisted } = require("../utils/tokenBlacklist");
 
 /**
  * Authentication Middleware
@@ -36,6 +37,17 @@ const authenticate = async (req, res, next) => {
         status: "error",
         message: "Unauthorized: Invalid token payload",
       });
+    }
+
+    // Check JWT blacklist (invalidated on logout, deactivation, or password change)
+    if (decoded.iat) {
+      const blacklisted = await isTokenBlacklisted(userId, decoded.iat);
+      if (blacklisted) {
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized: Session has been invalidated",
+        });
+      }
     }
 
     const user = await prisma.user.findUnique({

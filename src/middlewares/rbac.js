@@ -61,10 +61,12 @@ const requirePermission = (key, scopeResolverFn = null) => {
 
       // ── Step 2: Check for GLOBAL scope ──────────────────────────────────
       if (grantedScopes.includes("GLOBAL")) {
+        req.isGlobalScope = true;
         return next();
       }
 
       // ── Step 3: Check Scoped Permission ─────────────────────────────────
+      req.isGlobalScope = false;
       // If user holds only scoped access (e.g. OWN, TEAM, ASSIGNED),
       const targetResource = req.resource || { ...req.params, ...req.body };
 

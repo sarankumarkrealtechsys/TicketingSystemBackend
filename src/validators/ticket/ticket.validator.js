@@ -182,8 +182,18 @@ const removeCollaboratingTeamSchema = {
     teamId: z.coerce
       .number({ required_error: "Team ID is required" })
       .int("Team ID must be an integer")
-      .positive("Team ID must be a positive number"),
+      .positive("Team ID must be a positive number")
+      .optional(),
   }),
+  body: z
+    .object({
+      teamId: z.coerce
+        .number()
+        .int("Team ID must be an integer")
+        .positive("Team ID must be a positive number")
+        .optional(),
+    })
+    .optional(),
 };
 
 const changeStatusSchema = {
@@ -220,9 +230,9 @@ const closeTicketSchema = {
 const changePrioritySchema = {
   params: z.object({
     id: z.coerce
-      .number({ required_error: "Ticket ID is required" })
-      .int("Ticket ID must be an integer")
-      .positive("Ticket ID must be a positive number"),
+      .number({ required_error: "Priority ID is required" })
+      .int("Priority ID must be an integer")
+      .positive("Priority ID must be a positive number"),
   }),
   body: z.object({
     priorityId: z.coerce
@@ -243,6 +253,21 @@ const createSubTicketSchema = {
   body: createTicketSchema.body.omit({ parentTicketId: true }),
 };
 
+const addRemarkSchema = {
+  params: z.object({
+    id: z.coerce
+      .number({ required_error: "Ticket ID is required" })
+      .int("Ticket ID must be an integer")
+      .positive("Ticket ID must be a positive number"),
+  }),
+  body: z.object({
+    remarks: z
+      .string({ required_error: "Remarks are required" })
+      .trim()
+      .min(1, "Remarks cannot be empty"),
+  }),
+};
+
 module.exports = {
   createTicketSchema,
   ticketQuerySchema,
@@ -256,4 +281,5 @@ module.exports = {
   closeTicketSchema,
   changePrioritySchema,
   createSubTicketSchema,
+  addRemarkSchema,
 };

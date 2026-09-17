@@ -2,9 +2,14 @@ const { createClient } = require("redis");
 const { env } = require("../config/env");
 const { logger } = require("../config/logger");
 
-const redisClient = createClient({
+const clientOptions = {
   url: env.REDIS_URL,
-});
+};
+if (env.REDIS_PASSWORD) {
+  clientOptions.password = env.REDIS_PASSWORD;
+}
+
+const redisClient = createClient(clientOptions);
 
 redisClient.on("error", (err) => {
   logger.warn(`Redis Client Warning: ${err.message || err}`);

@@ -15,12 +15,18 @@ const envSchema = z.object({
     .min(1, "JWT_SECRET is required from environment with no fallback"),
   JWT_EXPIRES_IN: z.string().default("30d"),
   COOKIE_NAME: z.string().default("rts_auth"),
-  REDIS_URL: z.string().default("redis://localhost:6379"),
+  REDIS_URL: z
+    .string()
+    .min(1, "REDIS_URL is required from environment with no fallback"),
+  REDIS_PASSWORD: z.string().optional().default(""),
   SMTP_HOST: z.string().optional().default("smtp.mailtrap.io"),
   SMTP_PORT: z.coerce.number().optional().default(2525),
   SMTP_USER: z.string().optional().default(""),
   SMTP_PASSWORD: z.string().optional().default(""),
   SMTP_FROM: z.string().optional().default("noreply@example.com"),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  ADMIN_NOTIFICATION_EMAIL: z.string().email().optional(),
+  FRONTEND_URL: z.string().url().default("http://localhost:5173"),
   UPLOAD_DIR: z.string().default("./uploads"),
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
 });

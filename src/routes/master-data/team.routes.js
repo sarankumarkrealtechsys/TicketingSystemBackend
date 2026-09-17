@@ -1,0 +1,94 @@
+const { Router } = require("express");
+const { authenticate } = require("../../middlewares/auth");
+const { requirePermission, requirePermissionKey } = require("../../middlewares/rbac");
+const {
+  resolveGlobal,
+  resolveTeam,
+} = require("../../services/auth/scope.service");
+const { validate } = require("../../validators");
+const {
+  createTeamSchema,
+  updateTeamSchema,
+  teamParamIdSchema,
+  teamIdParamSchema,
+  teamQuerySchema,
+} = require("../../validators/master-data/team.validator");
+const {
+  createTeam,
+  listTeams,
+  getTeamById,
+  updateTeam,
+  retireTeam,
+  getTeamAssignees,
+} = require("../../controllers/master-data/team.controller");
+
+const router = Router();
+
+// Middleware to tag req.resource for TEAM-scoped checks on single team routes
+const setTeamResource = (req, _res, next) => {
+  const teamId = Number(req.params.teamId || req.params.id);
+  req.resource = {
+    id: teamId,
+    teamId,
+    entityType: "Team",
+  };
+  next();
+};
+
+// GET /api/teams/:teamId/assignees — Assignee candidates matching team's department
+router.get(
+  "/:teamId/assignees",
+  authenticate,
+  validate(teamIdParamSchema),
+  setTeamResource,
+  requirePermission("TEAM_VIEW", resolveTeam),
+  getTeamAssignees,
+);
+
+// POST /api/teams — Create new Team (Admin only, GLOBAL scope)
+router.post(
+  "/",
+  authenticate,
+  requirePermission("TEAM_CREATE", resolveGlobal),
+  validate(createTeamSchema),
+  createTeam,
+);
+
+// GET /api/teams — List teams (GLOBAL sees all; TEAM-scoped sees own active teams)
+router.get(
+  "/",
+  authenticate,
+  requirePermissionKey("TEAM_VIEW"),
+  validate(teamQuerySchema),
+  listTeams,
+);
+
+// GET /api/teams/:id — View single team (GLOBAL sees all; TEAM sees if active member)
+router.get(
+  "/:id",
+  authenticate,
+  validate(teamParamIdSchema),
+  setTeamResource,
+  requirePermission("TEAM_VIEW", resolveTeam),
+  getTeamById,
+);
+
+// PATCH /api/teams/:id — Edit team (Admin only, GLOBAL scope)
+router.patch(
+  "/:id",
+  authenticate,
+  requirePermission("TEAM_UPDATE", resolveGlobal),
+  validate(updateTeamSchema),
+  updateTeam,
+);
+
+// DELETE /api/teams/:id — Soft-delete team (retire), Admin only (GLOBAL scope)
+router.delete(
+  "/:id",
+  authenticate,
+  requirePermission("TEAM_DELETE", resolveGlobal),
+  validate(teamParamIdSchema),
+  retireTeam,
+);
+
+module.exports = router;

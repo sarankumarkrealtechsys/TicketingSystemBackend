@@ -50,14 +50,29 @@ const resolveAssigned = async (user, resource) => {
 
 /**
  * TEAM scope: user has an active UserTeam membership on the resource's team.
+ * When the resource has an `id` (e.g., a ticket), the teamId is verified from
+ * the database to prevent user-supplied `req.body.teamId` from being trusted.
  */
 const resolveTeam = async (user, resource) => {
   if (!user?.id || !resource) {
     return false;
   }
 
-  const teamId =
+  let teamId =
     resource.teamId || (resource.entityType === "Team" ? resource.id : null);
+
+  // If the resource has an `id` and a `teamId`, verify the teamId from DB
+  // to prevent trusting user-controlled `req.body.teamId`
+  if (resource.id && resource.teamId && resource.entityType !== "Team") {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: Number(resource.id) },
+      select: { teamId: true },
+    });
+    if (ticket) {
+      teamId = ticket.teamId;
+    }
+  }
+
   if (!teamId) {
     return false;
   }

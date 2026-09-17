@@ -2,13 +2,9 @@ const http = require("http");
 const app = require("./app");
 const { env } = require("./config/env");
 const { logger } = require("./config/logger");
-const { initSocketIO } = require("./sockets");
 const { connectRedis } = require("./lib/redis");
 
 const server = http.createServer(app);
-
-// Initialize Socket.IO
-initSocketIO(server);
 
 const startServer = async () => {
   try {
