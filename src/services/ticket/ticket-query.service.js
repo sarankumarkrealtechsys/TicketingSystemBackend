@@ -1,5 +1,7 @@
 const { prisma } = require("../../lib/prisma");
 const { AppError } = require("../../utils/errors");
+const { computeTicketActions } = require("./ticket-permission.helper");
+const timeEntryService = require("./time-entry.service");
 
 /**
  * Lists tickets with basic filters and pagination.
@@ -62,10 +64,12 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
     };
   }
 
-  if (query.startDate || query.endDate) {
+  const startDate = query.startDate || query.createdAfter;
+  const endDate = query.endDate || query.createdBefore;
+  if (startDate || endDate) {
     where.createdAt = {};
-    if (query.startDate) where.createdAt.gte = new Date(query.startDate);
-    if (query.endDate) where.createdAt.lte = new Date(query.endDate);
+    if (startDate) where.createdAt.gte = new Date(startDate);
+    if (endDate) where.createdAt.lte = new Date(endDate);
   }
 
   if (query.search) {
@@ -153,10 +157,11 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
  * Fetches single ticket detail with full relations.
  * Verifies team or collaborating team membership if caller is non-admin.
  */
-const getTicketById = async (id, user, isGlobalScope = false) => {
+const getTicketById = async (id, user, isGlobalScope = false, userPermissions = {}) => {
   const ticket = await prisma.ticket.findUnique({
     where: { id: Number(id) },
     include: {
+      createdBy: { select: { id: true, name: true, email: true } },
       project: { select: { id: true, name: true } },
       team: {
         select: {
@@ -290,9 +295,28 @@ const getTicketById = async (id, user, isGlobalScope = false) => {
     summary: `${resolvedCount} of ${subTickets.length} Resolved`,
   };
 
+  // Re-use time-entry service aggregation for total logged time
+  const timeSummary = await timeEntryService.getTicketTimeSummary(
+    ticket.id,
+    {},
+    null,
+    true,
+  );
+  const totalMinutes = timeSummary.totalMinutes || 0;
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  const formattedTime = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+  const actions = computeTicketActions(ticket, user, userPermissions);
+
   return {
     ...ticket,
-    subTicketsRollup: subTickets.length > 0 ? rollup : null,
+    subTicketsRollup: rollup,
+    timeLogged: {
+      totalMinutes,
+      formatted: formattedTime,
+    },
+    actions,
   };
 };
 

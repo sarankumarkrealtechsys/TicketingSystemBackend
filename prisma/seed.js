@@ -115,6 +115,7 @@ const USER_PERMISSIONS = [
   { key: 'TICKET_CREATE_SUBTICKET',  scope: 'OWN' },
   { key: 'TICKET_CREATE_SUBTICKET',  scope: 'ASSIGNED' },
   { key: 'TICKET_CLOSE',             scope: 'ASSIGNED' },
+  { key: 'TICKET_ADD_REMARK',        scope: 'OWN' },
   { key: 'TICKET_ADD_REMARK',        scope: 'ASSIGNED' },
   { key: 'TICKET_ATTACHMENT_MANAGE', scope: 'OWN' },
   { key: 'TICKET_ATTACHMENT_MANAGE', scope: 'ASSIGNED' },

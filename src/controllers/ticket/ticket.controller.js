@@ -62,6 +62,7 @@ const getTicketById = async (req, res, next) => {
       Number(req.params.id),
       req.user,
       isGlobalScope,
+      userPermissions,
     );
     return res.status(200).json({
       status: "success",

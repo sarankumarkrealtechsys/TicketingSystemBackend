@@ -124,6 +124,8 @@ const resolveTicketAttachmentManage = async (user, _resource, req) => {
   return isCreator || isAssignee;
 };
 
+const resolveTicketCreatorOrAssignee = resolveTicketAttachmentManage;
+
 /**
  * Scope resolver for TICKET_CHANGE_STATUS, TICKET_CHANGE_PRIORITY, and TICKET_CLOSE
  * when caller holds ASSIGNED scope.
@@ -439,11 +441,11 @@ router.post(
   ticketController.createSubTicket,
 );
 
-// POST /api/tickets/:id/remarks — Add remark to ticket (Admin GLOBAL, User ASSIGNED)
+// POST /api/tickets/:id/remarks — Add remark to ticket (Admin GLOBAL, User OWN or ASSIGNED)
 router.post(
   "/:id/remarks",
   authenticate,
-  requirePermission("TICKET_ADD_REMARK", resolveTicketAssignee),
+  requirePermission("TICKET_ADD_REMARK", resolveTicketCreatorOrAssignee),
   validate(addRemarkSchema),
   ticketController.addRemark,
 );
