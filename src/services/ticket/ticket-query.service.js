@@ -11,7 +11,28 @@ const timeEntryService = require("./time-entry.service");
 const listTickets = async ({ query, user, isGlobalScope = false }) => {
   const where = {};
 
-  if (!isGlobalScope) {
+  if (query.scope === "created") {
+    where.createdById = user.id;
+  } else if (query.scope === "assigned") {
+    where.assignees = {
+      some: {
+        userId: user.id,
+        removedAt: null,
+      },
+    };
+  } else if (query.scope === "personal") {
+    where.OR = [
+      { createdById: user.id },
+      {
+        assignees: {
+          some: {
+            userId: user.id,
+            removedAt: null,
+          },
+        },
+      },
+    ];
+  } else if (!isGlobalScope) {
     where.OR = [
       { createdById: user.id },
       {
@@ -50,6 +71,7 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
     ];
   }
 
+  if (query.createdById) where.createdById = Number(query.createdById);
   if (query.teamId) where.teamId = Number(query.teamId);
   if (query.statusId) where.statusId = Number(query.statusId);
   if (query.priorityId) where.priorityId = Number(query.priorityId);
@@ -322,43 +344,18 @@ const getTicketById = async (id, user, isGlobalScope = false, userPermissions = 
 
 /**
  * Returns aggregated statistics for KPI dashboard cards and charts.
- * Scoped by caller's permissions (Admin sees all, User sees active team tickets).
+ * Scoped by caller's permissions (Admin sees all, User sees active personal/team tickets).
  */
-const getTicketStats = async (user, isGlobalScope = false) => {
+const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
   const where = {};
 
-  if (!isGlobalScope) {
+  if (scope === "personal" || !isGlobalScope) {
     where.OR = [
       { createdById: user.id },
       {
         assignees: {
           some: {
             userId: user.id,
-            removedAt: null,
-          },
-        },
-      },
-      {
-        team: {
-          members: {
-            some: {
-              userId: user.id,
-              removedAt: null,
-            },
-          },
-        },
-      },
-      {
-        collaboratingTeams: {
-          some: {
-            team: {
-              members: {
-                some: {
-                  userId: user.id,
-                  removedAt: null,
-                },
-              },
-            },
             removedAt: null,
           },
         },

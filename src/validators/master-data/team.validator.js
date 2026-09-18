@@ -148,6 +148,56 @@ const userTeamsQuerySchema = {
   }),
 };
 
+const bulkAddTeamMembersSchema = {
+  params: z.object({
+    teamId: z.coerce
+      .number({
+        required_error: "Team ID is mandatory",
+        invalid_type_error: "Team ID must be a number",
+      })
+      .int("Team ID must be an integer")
+      .positive("Team ID must be a positive number"),
+  }),
+  body: z.object({
+    userIds: z
+      .array(
+        z.coerce
+          .number({
+            invalid_type_error: "User ID must be a number",
+          })
+          .int("User ID must be an integer")
+          .positive("User ID must be a positive number"),
+        { required_error: "userIds array is required" }
+      )
+      .min(1, "At least one user ID must be provided"),
+  }),
+};
+
+const bulkRemoveTeamMembersSchema = {
+  params: z.object({
+    teamId: z.coerce
+      .number({
+        required_error: "Team ID is mandatory",
+        invalid_type_error: "Team ID must be a number",
+      })
+      .int("Team ID must be an integer")
+      .positive("Team ID must be a positive number"),
+  }),
+  body: z.object({
+    userIds: z
+      .array(
+        z.coerce
+          .number({
+            invalid_type_error: "User ID must be a number",
+          })
+          .int("User ID must be an integer")
+          .positive("User ID must be a positive number"),
+        { required_error: "userIds array is required" }
+      )
+      .min(1, "At least one user ID must be provided"),
+  }),
+};
+
 module.exports = {
   createTeamSchema,
   updateTeamSchema,
@@ -157,4 +207,6 @@ module.exports = {
   addTeamMemberSchema,
   removeTeamMemberSchema,
   userTeamsQuerySchema,
+  bulkAddTeamMembersSchema,
+  bulkRemoveTeamMembersSchema,
 };

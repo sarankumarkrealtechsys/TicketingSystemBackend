@@ -58,6 +58,7 @@ const login = async (req, res, next) => {
       status: "success",
       message: "Login successful",
       data: {
+        token,
         user: {
           id: user.id,
           name: user.name,
@@ -82,7 +83,7 @@ const login = async (req, res, next) => {
 /**
  * Handles session verification.
  * Protected by authenticate middleware.
- * Returns current authenticated user and resolved permissions.
+ * Returns current authenticated user, resolved permissions, and active token.
  */
 const getMe = async (req, res, next) => {
   try {
@@ -96,10 +97,12 @@ const getMe = async (req, res, next) => {
     }
 
     const permissions = await getPermissions(user, req);
+    const activeToken = req.token || req.cookies?.[env.COOKIE_NAME] || null;
 
     return res.status(200).json({
       status: "success",
       data: {
+        token: activeToken,
         user: {
           id: user.id,
           name: user.name,

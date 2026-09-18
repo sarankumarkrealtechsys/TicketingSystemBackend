@@ -24,9 +24,22 @@ const app = express();
 app.use(helmet());
 
 // CORS configuration
+const allowedOrigins = [
+  env.CORS_ORIGIN,
+  "http://localhost:5173",
+  "http://localhost:5174",
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. server-to-server or curl) or allowed origins
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   }),
 );
@@ -51,6 +64,16 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Root health check endpoint directly at /health per spec
 app.use("/health", healthRoutes);
+
+// Prevent browser and intermediary HTTP caching for all API responses
+app.use("/api", (req, res, next) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, private",
+  );
+  res.setHeader("Pragma", "no-cache");
+  next();
+});
 
 // Web API routes mounted at /api
 app.use("/api", routes);

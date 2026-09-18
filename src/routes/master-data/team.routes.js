@@ -12,6 +12,8 @@ const {
   teamParamIdSchema,
   teamIdParamSchema,
   teamQuerySchema,
+  bulkAddTeamMembersSchema,
+  bulkRemoveTeamMembersSchema,
 } = require("../../validators/master-data/team.validator");
 const {
   createTeam,
@@ -21,6 +23,10 @@ const {
   retireTeam,
   getTeamAssignees,
 } = require("../../controllers/master-data/team.controller");
+const {
+  bulkAddUserTeams,
+  bulkRemoveUserTeams,
+} = require("../../controllers/user/user-team.controller");
 
 const router = Router();
 
@@ -43,6 +49,24 @@ router.get(
   setTeamResource,
   requirePermission("TEAM_VIEW", resolveTeam),
   getTeamAssignees,
+);
+
+// POST /api/teams/:teamId/members/bulk — Add multiple members to team
+router.post(
+  "/:teamId/members/bulk",
+  authenticate,
+  requirePermission("TEAM_MEMBERSHIP_MANAGE"),
+  validate(bulkAddTeamMembersSchema),
+  bulkAddUserTeams,
+);
+
+// POST /api/teams/:teamId/members/bulk-remove — Remove multiple members from team
+router.post(
+  "/:teamId/members/bulk-remove",
+  authenticate,
+  requirePermission("TEAM_MEMBERSHIP_MANAGE"),
+  validate(bulkRemoveTeamMembersSchema),
+  bulkRemoveUserTeams,
 );
 
 // POST /api/teams — Create new Team (Admin only, GLOBAL scope)

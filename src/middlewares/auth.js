@@ -12,7 +12,13 @@ const { isTokenBlacklisted } = require("../utils/tokenBlacklist");
  */
 const authenticate = async (req, res, next) => {
   try {
-    const token = req.cookies?.[env.COOKIE_NAME];
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7).trim();
+    } else {
+      token = req.cookies?.[env.COOKIE_NAME];
+    }
 
     if (!token) {
       return res.status(401).json({
@@ -20,6 +26,8 @@ const authenticate = async (req, res, next) => {
         message: "Unauthorized: Authentication required",
       });
     }
+
+    req.token = token;
 
     let decoded;
     try {

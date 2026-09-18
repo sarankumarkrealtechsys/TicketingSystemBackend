@@ -175,7 +175,182 @@ const removeUserTeam = async ({ userId, teamId, adminUserId }) => {
   });
 };
 
+/**
+ * Adds multiple users to a team in a single atomic transaction.
+ * Reactivates existing inactive memberships or creates new ones.
+ * Records AuditLogs for all added memberships.
+ */
+const bulkAddUserTeams = async ({ teamId, userIds, adminUserId }) => {
+  const team = await prisma.team.findUnique({ where: { id: teamId } });
+  if (!team) {
+    throw new AppError("Team not found", 404);
+  }
+
+  const uniqueUserIds = [...new Set(userIds)];
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: uniqueUserIds } },
+    select: { id: true, name: true, departmentId: true, status: true },
+  });
+
+  if (users.length !== uniqueUserIds.length) {
+    const foundIds = new Set(users.map((u) => u.id));
+    const missingIds = uniqueUserIds.filter((id) => !foundIds.has(id));
+    throw new AppError(`User(s) not found: ${missingIds.join(", ")}`, 404);
+  }
+
+  const invalidDeptUsers = users.filter((u) => u.departmentId !== team.departmentId);
+  if (invalidDeptUsers.length > 0) {
+    const names = invalidDeptUsers.map((u) => u.name).join(", ");
+    throw new AppError(
+      `Cannot add user(s) to team: ${names} belong to a different department`,
+      400,
+    );
+  }
+
+  const existingMemberships = await prisma.userTeam.findMany({
+    where: {
+      teamId,
+      userId: { in: uniqueUserIds },
+    },
+    orderBy: { id: "desc" },
+  });
+
+  const existingMap = new Map();
+  for (const m of existingMemberships) {
+    if (!existingMap.has(m.userId)) {
+      existingMap.set(m.userId, m);
+    }
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    const results = [];
+    const now = new Date();
+
+    for (const userId of uniqueUserIds) {
+      const existing = existingMap.get(userId);
+
+      if (existing && existing.removedAt === null) {
+        continue;
+      }
+
+      let membership;
+      if (existing) {
+        membership = await tx.userTeam.update({
+          where: { id: existing.id },
+          data: {
+            removedAt: null,
+            joinedAt: now,
+            addedById: adminUserId,
+          },
+          include: {
+            team: {
+              select: { id: true, name: true, departmentId: true, status: true },
+            },
+            user: {
+              select: { id: true, name: true, username: true, departmentId: true },
+            },
+          },
+        });
+      } else {
+        membership = await tx.userTeam.create({
+          data: {
+            userId,
+            teamId,
+            addedById: adminUserId,
+            joinedAt: now,
+            removedAt: null,
+          },
+          include: {
+            team: {
+              select: { id: true, name: true, departmentId: true, status: true },
+            },
+            user: {
+              select: { id: true, name: true, username: true, departmentId: true },
+            },
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          entityType: "UserTeam",
+          entityId: membership.id,
+          action: "MEMBERSHIP_ADDED",
+          newValue: JSON.stringify({
+            userId,
+            teamId,
+            reactivated: !!existing,
+          }),
+          performedById: adminUserId,
+        },
+      });
+
+      results.push(membership);
+    }
+
+    return {
+      addedCount: results.length,
+      memberships: results,
+    };
+  });
+};
+
+/**
+ * Removes multiple users from a team in a single atomic transaction.
+ * Records AuditLogs for all removed memberships.
+ */
+const bulkRemoveUserTeams = async ({ teamId, userIds, adminUserId }) => {
+  const team = await prisma.team.findUnique({ where: { id: teamId } });
+  if (!team) {
+    throw new AppError("Team not found", 404);
+  }
+
+  const uniqueUserIds = [...new Set(userIds)];
+
+  const activeMemberships = await prisma.userTeam.findMany({
+    where: {
+      teamId,
+      userId: { in: uniqueUserIds },
+      removedAt: null,
+    },
+  });
+
+  if (activeMemberships.length === 0) {
+    return { removedCount: 0 };
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const membershipIds = activeMemberships.map((m) => m.id);
+
+    await tx.userTeam.updateMany({
+      where: { id: { in: membershipIds } },
+      data: {
+        removedAt: now,
+        removedById: adminUserId,
+      },
+    });
+
+    for (const membership of activeMemberships) {
+      await tx.auditLog.create({
+        data: {
+          entityType: "UserTeam",
+          entityId: membership.id,
+          action: "MEMBERSHIP_REMOVED",
+          previousValue: JSON.stringify({ userId: membership.userId, teamId }),
+          performedById: adminUserId,
+        },
+      });
+    }
+
+    return { removedCount: activeMemberships.length };
+  });
+};
+
 module.exports = {
   addUserTeam,
   removeUserTeam,
+  bulkAddUserTeams,
+  bulkRemoveUserTeams,
 };

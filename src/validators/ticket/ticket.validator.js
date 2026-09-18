@@ -84,6 +84,8 @@ const ticketQuerySchema = {
     priorityId: z.coerce.number().int().positive().optional(),
     projectId: z.coerce.number().int().positive().optional(),
     assigneeId: z.coerce.number().int().positive().optional(),
+    createdById: z.coerce.number().int().positive().optional(),
+    scope: z.enum(["all", "personal", "created", "assigned"]).optional(),
     search: z.string().trim().optional(),
     startDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "startDate must be a valid date string" }).optional(),
     endDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "endDate must be a valid date string" }).optional(),

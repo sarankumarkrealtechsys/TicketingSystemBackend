@@ -95,8 +95,58 @@ const getUserTeams = async (req, res, next) => {
   }
 };
 
+const bulkAddUserTeams = async (req, res, next) => {
+  try {
+    const teamId = Number(req.params.teamId);
+    const userIds = req.body.userIds.map(Number);
+    const adminUserId = req.user.id;
+
+    const result = await userTeamService.bulkAddUserTeams({
+      teamId,
+      userIds,
+      adminUserId,
+    });
+
+    await invalidateCachePattern("masterdata:teams:*");
+
+    return res.status(201).json({
+      status: "success",
+      message: `${result.addedCount} team ${result.addedCount === 1 ? "membership" : "memberships"} added successfully`,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const bulkRemoveUserTeams = async (req, res, next) => {
+  try {
+    const teamId = Number(req.params.teamId);
+    const userIds = req.body.userIds.map(Number);
+    const adminUserId = req.user.id;
+
+    const result = await userTeamService.bulkRemoveUserTeams({
+      teamId,
+      userIds,
+      adminUserId,
+    });
+
+    await invalidateCachePattern("masterdata:teams:*");
+
+    return res.status(200).json({
+      status: "success",
+      message: `${result.removedCount} team ${result.removedCount === 1 ? "membership" : "memberships"} removed successfully`,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   addUserTeam,
   removeUserTeam,
   getUserTeams,
+  bulkAddUserTeams,
+  bulkRemoveUserTeams,
 };

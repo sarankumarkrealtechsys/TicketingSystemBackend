@@ -75,15 +75,25 @@ const getTicketById = async (req, res, next) => {
 
 const getTicketStats = async (req, res, next) => {
   try {
-    const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = userPermissions["TICKET_VIEW"]?.includes("GLOBAL");
+    // Prevent browser and intermediary HTTP caching
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
 
-    const cacheKey = isGlobalScope
-      ? "ticket-stats:global"
-      : `ticket-stats:user:${req.user.id}`;
+    const userPermissions = await getPermissions(req.user, req);
+    const isGlobalScope = Boolean(userPermissions["TICKET_VIEW"]?.includes("GLOBAL"));
+    // Non-global callers are strictly restricted to personal scope
+    const scope = !isGlobalScope ? "personal" : (req.query.scope || "global");
+
+    // Strictly scope cache key by user role, user ID, and scope so responses are never shared
+    const cacheKey = `ticket-stats:${req.user.userRole?.name || "USER"}:${req.user.id}:${scope}`;
 
     const data = await getOrSetCache(cacheKey, 60, () =>
-      ticketQueryService.getTicketStats(req.user, isGlobalScope),
+      ticketQueryService.getTicketStats(
+        req.user,
+        isGlobalScope && scope !== "personal",
+        scope,
+      ),
     );
 
     return res.status(200).json({
