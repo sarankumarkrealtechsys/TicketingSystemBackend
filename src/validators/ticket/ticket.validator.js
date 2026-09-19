@@ -6,10 +6,23 @@ const createTicketSchema = {
       .number({ required_error: "Project ID is required" })
       .int("Project ID must be an integer")
       .positive("Project ID must be a positive number"),
+    departmentId: z.coerce
+      .number()
+      .int("Department ID must be an integer")
+      .positive("Department ID must be a positive number")
+      .optional(),
     teamId: z.coerce
       .number({ required_error: "Team ID is required" })
       .int("Team ID must be an integer")
       .positive("Team ID must be a positive number"),
+    collaboratingTeamIds: z
+      .array(
+        z.coerce
+          .number()
+          .int("Collaborating Team ID must be an integer")
+          .positive("Collaborating Team ID must be a positive number")
+      )
+      .optional(),
     summary: z
       .string({ required_error: "Summary is required" })
       .trim()

@@ -483,6 +483,31 @@ async function seedMasterData(adminUser) {
     },
   });
   console.log(`  ✓ Priority Level: Low (sortOrder: 3, ID: ${low.id})\n`);
+
+  // Standard User: Saran
+  console.log('Upserting user Saran...');
+  const userRoleObj = await prisma.role.findUnique({ where: { name: 'USER' } });
+  const saranPassword = await bcrypt.hash('Saran@123', 10);
+  const saranUser = await prisma.user.upsert({
+    where: { username: 'Saran' },
+    update: {
+      password: saranPassword,
+      roleId: userRoleObj ? userRoleObj.id : undefined,
+      departmentId: itDept.id,
+      status: 'ACTIVE',
+    },
+    create: {
+      name: 'Saran',
+      username: 'Saran',
+      password: saranPassword,
+      email: 'saran@rts.com',
+      legacyRole: 'USER',
+      roleId: userRoleObj.id,
+      departmentId: itDept.id,
+      status: 'ACTIVE',
+    },
+  });
+  console.log(`  ✓ User: Saran (Username: Saran, Password: Saran@123, Dept: IT, ID: ${saranUser.id})\n`);
 }
 
 // ─── Main Execution Pipeline ───────────────────────────────────────────────────

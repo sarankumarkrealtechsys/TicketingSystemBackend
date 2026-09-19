@@ -238,6 +238,22 @@ const createTicket = async (data, user, isGlobalScope = false) => {
         });
       }
 
+      // 9c.2 Create collaborating teams if provided
+      if (Array.isArray(data.collaboratingTeamIds) && data.collaboratingTeamIds.length > 0) {
+        const uniqueCollabTeamIds = [...new Set(data.collaboratingTeamIds.map(Number))].filter(
+          (id) => id !== team.id
+        );
+        for (const collabTeamId of uniqueCollabTeamIds) {
+          await tx.ticketTeam.create({
+            data: {
+              ticketId: ticket.id,
+              teamId: collabTeamId,
+              assignedById: user.id,
+            },
+          });
+        }
+      }
+
       // 9d. Create custom field values
       for (const cf of formattedCustomFields) {
         await tx.ticketFieldValue.create({

@@ -176,6 +176,15 @@ const updateDepartment = async (req, res, next) => {
         },
       });
 
+      // If restoring department from INACTIVE to ACTIVE, restore all child teams as well
+      if (status === "ACTIVE" && existing.status === "INACTIVE") {
+        await prisma.team.updateMany({
+          where: { departmentId: id },
+          data: { status: "ACTIVE" },
+        });
+        await invalidateCachePattern("masterdata:teams:*");
+      }
+
       await invalidateCachePattern("masterdata:departments:*");
 
       return res.status(200).json({
@@ -205,8 +214,30 @@ const retireDepartment = async (req, res, next) => {
 
     let data;
     if (permanent) {
-      data = await prisma.department.delete({ where: { id } });
+      try {
+        data = await prisma.department.delete({ where: { id } });
+      } catch (err) {
+        if (err.code === "P2003") {
+          // If permanent delete fails due to child teams/users, cascade archive child teams and department
+          await prisma.team.updateMany({
+            where: { departmentId: id },
+            data: { status: "INACTIVE" },
+          });
+          data = await prisma.department.update({
+            where: { id },
+            data: { status: "INACTIVE" },
+          });
+        } else {
+          throw err;
+        }
+      }
     } else {
+      // Archive all child teams under this department
+      await prisma.team.updateMany({
+        where: { departmentId: id },
+        data: { status: "INACTIVE" },
+      });
+
       data = await prisma.department.update({
         where: { id },
         data: { status: "INACTIVE" },
@@ -214,6 +245,7 @@ const retireDepartment = async (req, res, next) => {
     }
 
     await invalidateCachePattern("masterdata:departments:*");
+    await invalidateCachePattern("masterdata:teams:*");
 
     return res.status(200).json({
       status: "success",
