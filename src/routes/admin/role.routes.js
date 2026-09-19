@@ -7,6 +7,8 @@ const {
   createRole,
   updateRole,
   updateRolePermissions,
+  archiveRole,
+  restoreRole,
   deleteRole,
 } = require("../../controllers/admin/role.controller");
 
@@ -25,6 +27,8 @@ router.get("/:id", getRoleById);
 router.post("/", requirePermissionKey("ROLE_MANAGE"), createRole);
 router.put("/:id", requirePermissionKey("ROLE_MANAGE"), updateRole);
 router.put("/:id/permissions", requirePermissionKey("ROLE_MANAGE"), updateRolePermissions);
+router.patch("/:id/archive", requirePermissionKey("ROLE_MANAGE"), archiveRole);
+router.patch("/:id/restore", requirePermissionKey("ROLE_MANAGE"), restoreRole);
 router.delete("/:id", requirePermissionKey("ROLE_MANAGE"), deleteRole);
 
 module.exports = router;

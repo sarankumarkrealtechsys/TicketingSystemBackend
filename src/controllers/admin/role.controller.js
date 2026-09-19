@@ -10,7 +10,14 @@ const SYSTEM_ROLES = ["ADMIN", "USER"];
  */
 const listRoles = async (req, res, next) => {
   try {
+    const { status } = req.query;
+    const where = {};
+    if (status) {
+      where.status = status.toUpperCase();
+    }
+
     const roles = await prisma.role.findMany({
+      where,
       include: {
         _count: {
           select: {
@@ -346,7 +353,117 @@ const updateRolePermissions = async (req, res, next) => {
 };
 
 /**
- * Delete / retire a custom role
+ * Archive / deactivate a custom role (status -> INACTIVE)
+ */
+const archiveRole = async (req, res, next) => {
+  try {
+    const roleId = parseInt(req.params.id, 10);
+    if (isNaN(roleId)) {
+      throw new AppError("Invalid role ID", 400);
+    }
+
+    const role = await prisma.role.findUnique({
+      where: { id: roleId },
+      include: {
+        _count: {
+          select: { users: true, rolePermissions: true },
+        },
+      },
+    });
+
+    if (!role) {
+      throw new AppError("Role not found", 404);
+    }
+
+    if (SYSTEM_ROLES.includes(role.name.toUpperCase())) {
+      throw new AppError("System default roles cannot be archived", 400);
+    }
+
+    const updated = await prisma.role.update({
+      where: { id: roleId },
+      data: { status: "INACTIVE" },
+      include: {
+        _count: {
+          select: { users: true, rolePermissions: true },
+        },
+      },
+    });
+
+    await invalidateCachePattern("roles:*");
+
+    return res.status(200).json({
+      status: "success",
+      message: `Role "${role.name}" has been archived`,
+      data: {
+        id: updated.id,
+        name: updated.name,
+        description: updated.description,
+        status: updated.status,
+        isSystem: false,
+        userCount: updated._count.users,
+        permissionCount: updated._count.rolePermissions,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Restore an archived custom role (status -> ACTIVE)
+ */
+const restoreRole = async (req, res, next) => {
+  try {
+    const roleId = parseInt(req.params.id, 10);
+    if (isNaN(roleId)) {
+      throw new AppError("Invalid role ID", 400);
+    }
+
+    const role = await prisma.role.findUnique({
+      where: { id: roleId },
+      include: {
+        _count: {
+          select: { users: true, rolePermissions: true },
+        },
+      },
+    });
+
+    if (!role) {
+      throw new AppError("Role not found", 404);
+    }
+
+    const updated = await prisma.role.update({
+      where: { id: roleId },
+      data: { status: "ACTIVE" },
+      include: {
+        _count: {
+          select: { users: true, rolePermissions: true },
+        },
+      },
+    });
+
+    await invalidateCachePattern("roles:*");
+
+    return res.status(200).json({
+      status: "success",
+      message: `Role "${role.name}" has been restored to active status`,
+      data: {
+        id: updated.id,
+        name: updated.name,
+        description: updated.description,
+        status: updated.status,
+        isSystem: SYSTEM_ROLES.includes(updated.name.toUpperCase()),
+        userCount: updated._count.users,
+        permissionCount: updated._count.rolePermissions,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Delete a custom role and all associated role_permissions records
  */
 const deleteRole = async (req, res, next) => {
   try {
@@ -359,7 +476,7 @@ const deleteRole = async (req, res, next) => {
       where: { id: roleId },
       include: {
         _count: {
-          select: { users: true },
+          select: { users: true, rolePermissions: true },
         },
       },
     });
@@ -374,21 +491,27 @@ const deleteRole = async (req, res, next) => {
 
     if (role._count.users > 0) {
       throw new AppError(
-        `Cannot delete role "${role.name}" because ${role._count.users} user(s) are currently assigned to it. Reassign users first.`,
+        `Cannot delete role "${role.name}" because ${role._count.users} user(s) are currently assigned to it. Reassign users or archive the role instead.`,
         400
       );
     }
 
-    // Delete role (cascade deletes role_permissions)
-    await prisma.role.delete({
-      where: { id: roleId },
+    // Explicitly delete all associated role_permissions records, then delete the role
+    await prisma.$transaction(async (tx) => {
+      await tx.rolePermission.deleteMany({
+        where: { roleId },
+      });
+
+      await tx.role.delete({
+        where: { id: roleId },
+      });
     });
 
     await invalidateCachePattern("roles:*");
 
     return res.status(200).json({
       status: "success",
-      message: `Role "${role.name}" deleted successfully`,
+      message: `Role "${role.name}" and all associated permissions have been deleted successfully`,
     });
   } catch (error) {
     next(error);
@@ -419,6 +542,8 @@ module.exports = {
   createRole,
   updateRole,
   updateRolePermissions,
+  archiveRole,
+  restoreRole,
   deleteRole,
   listPermissions,
 };
