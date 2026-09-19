@@ -98,6 +98,31 @@ const getDepartmentById = async (req, res, next) => {
         _count: {
           select: { teams: true, users: true },
         },
+        teams: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            status: true,
+            teamAdminEmail: true,
+            _count: {
+              select: { members: true },
+            },
+          },
+          orderBy: { name: "asc" },
+        },
+        users: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            username: true,
+            userRole: {
+              select: { id: true, name: true },
+            },
+          },
+          orderBy: { name: "asc" },
+        },
       },
     });
 
