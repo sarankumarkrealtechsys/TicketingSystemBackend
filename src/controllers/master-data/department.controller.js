@@ -196,16 +196,22 @@ const updateDepartment = async (req, res, next) => {
 const retireDepartment = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const permanent = req.query.permanent === "true" || req.query.permanent === true;
 
     const existing = await prisma.department.findUnique({ where: { id } });
     if (!existing) {
       throw new AppError("Department not found", 404);
     }
 
-    const data = await prisma.department.update({
-      where: { id },
-      data: { status: "INACTIVE" },
-    });
+    let data;
+    if (permanent) {
+      data = await prisma.department.delete({ where: { id } });
+    } else {
+      data = await prisma.department.update({
+        where: { id },
+        data: { status: "INACTIVE" },
+      });
+    }
 
     await invalidateCachePattern("masterdata:departments:*");
 
@@ -214,9 +220,13 @@ const retireDepartment = async (req, res, next) => {
       data,
     });
   } catch (error) {
+    if (error.code === "P2003") {
+      return next(new AppError("Cannot permanently delete department because it has associated teams or personnel. Please archive it instead.", 400));
+    }
     next(error);
   }
 };
+
 
 module.exports = {
   createDepartment,

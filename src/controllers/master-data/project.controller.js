@@ -169,16 +169,22 @@ const updateProject = async (req, res, next) => {
 const retireProject = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const permanent = req.query.permanent === "true" || req.query.permanent === true;
 
     const existing = await prisma.project.findUnique({ where: { id } });
     if (!existing) {
       throw new AppError("Project not found", 404);
     }
 
-    const data = await prisma.project.update({
-      where: { id },
-      data: { status: "INACTIVE" },
-    });
+    let data;
+    if (permanent) {
+      data = await prisma.project.delete({ where: { id } });
+    } else {
+      data = await prisma.project.update({
+        where: { id },
+        data: { status: "INACTIVE" },
+      });
+    }
 
     await invalidateCachePattern("masterdata:projects:*");
 
@@ -187,9 +193,13 @@ const retireProject = async (req, res, next) => {
       data,
     });
   } catch (error) {
+    if (error.code === "P2003") {
+      return next(new AppError("Cannot permanently delete project because it has associated tickets. Please archive it instead.", 400));
+    }
     next(error);
   }
 };
+
 
 module.exports = {
   createProject,

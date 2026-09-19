@@ -260,16 +260,23 @@ const updateTeam = async (req, res, next) => {
 const retireTeam = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const permanent = req.query.permanent === "true" || req.query.permanent === true;
 
     const existing = await prisma.team.findUnique({ where: { id } });
     if (!existing) {
       throw new AppError("Team not found", 404);
     }
 
-    const data = await prisma.team.update({
-      where: { id },
-      data: { status: "INACTIVE" },
-    });
+    let data;
+    if (permanent) {
+      await prisma.teamMember.deleteMany({ where: { teamId: id } });
+      data = await prisma.team.delete({ where: { id } });
+    } else {
+      data = await prisma.team.update({
+        where: { id },
+        data: { status: "INACTIVE" },
+      });
+    }
 
     await invalidateCachePattern("masterdata:teams:*");
 
@@ -278,9 +285,13 @@ const retireTeam = async (req, res, next) => {
       data,
     });
   } catch (error) {
+    if (error.code === "P2003") {
+      return next(new AppError("Cannot permanently delete team because it has associated tickets. Please archive it instead.", 400));
+    }
     next(error);
   }
 };
+
 
 const getTeamAssignees = async (req, res, next) => {
   try {
