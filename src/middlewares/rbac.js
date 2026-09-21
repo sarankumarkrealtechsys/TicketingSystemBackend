@@ -22,6 +22,8 @@ const { getPermissions } = require("../services/auth/permission.service");
  * @returns {Function} Express middleware handler
  */
 const requirePermission = (key, scopeResolverFn = null) => {
+  const keys = Array.isArray(key) ? key : [key];
+
   return async (req, res, next) => {
     try {
       if (!req.user || !req.user.id) {
@@ -33,41 +35,23 @@ const requirePermission = (key, scopeResolverFn = null) => {
 
       // Resolve full permission map for user's role (request-cached)
       const userPermissions = await getPermissions(req.user, req);
-      const grantedScopes = userPermissions[key];
 
-      // ── Step 1: Check if role holds permission at all ───────────────────
-      if (!grantedScopes || grantedScopes.length === 0) {
-        // Log denial to AuditLog
-        await prisma.auditLog.create({
-          data: {
-            entityType: "PERMISSION",
-            entityId: 0,
-            action: "PERMISSION_DENIED",
-            previousValue: null,
-            newValue: JSON.stringify({
-              requiredPermission: key,
-              reason: "Role does not hold permission",
-              attemptedPath: req.originalUrl,
-            }),
-            performedById: req.user.id,
-          },
-        });
-
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: Insufficient permissions",
-        });
+      // Collect all granted scopes across any of the accepted permission keys
+      const allGrantedScopes = [];
+      for (const k of keys) {
+        if (userPermissions[k]) {
+          allGrantedScopes.push(...userPermissions[k]);
+        }
       }
 
-      // ── Step 2: Check for GLOBAL scope ──────────────────────────────────
-      if (grantedScopes.includes("GLOBAL")) {
+      // ── Step 1: Check for GLOBAL scope across any key ───────────────────
+      if (allGrantedScopes.includes("GLOBAL")) {
         req.isGlobalScope = true;
         return next();
       }
 
-      // ── Step 3: Check Scoped Permission ─────────────────────────────────
+      // ── Step 2: Check Scoped Permission or Scope Resolver ─────────────────
       req.isGlobalScope = false;
-      // If user holds only scoped access (e.g. OWN, TEAM, ASSIGNED),
       const targetResource = req.resource || { ...req.params, ...req.body };
 
       let isAllowed = false;
@@ -76,6 +60,30 @@ const requirePermission = (key, scopeResolverFn = null) => {
       }
 
       if (!isAllowed) {
+        const hasAnyPermission = allGrantedScopes.length > 0;
+        if (!hasAnyPermission) {
+          // Log denial to AuditLog
+          await prisma.auditLog.create({
+            data: {
+              entityType: "PERMISSION",
+              entityId: 0,
+              action: "PERMISSION_DENIED",
+              previousValue: null,
+              newValue: JSON.stringify({
+                requiredPermission: keys.join(" | "),
+                reason: "Role does not hold permission",
+                attemptedPath: req.originalUrl,
+              }),
+              performedById: req.user.id,
+            },
+          });
+
+          return res.status(403).json({
+            status: "error",
+            message: "Forbidden: Insufficient permissions",
+          });
+        }
+
         // Log scoped denial to AuditLog
         const resourceId =
           targetResource && typeof targetResource.id === "number"
@@ -89,8 +97,8 @@ const requirePermission = (key, scopeResolverFn = null) => {
             action: "PERMISSION_DENIED",
             previousValue: null,
             newValue: JSON.stringify({
-              requiredPermission: key,
-              attemptedScopes: grantedScopes,
+              requiredPermission: keys.join(" | "),
+              attemptedScopes: allGrantedScopes,
               reason: "Resource out of granted scope",
               attemptedPath: req.originalUrl,
             }),

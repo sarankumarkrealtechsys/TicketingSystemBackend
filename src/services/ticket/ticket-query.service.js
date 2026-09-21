@@ -1,6 +1,7 @@
 const { prisma } = require("../../lib/prisma");
 const { AppError } = require("../../utils/errors");
 const { computeTicketActions } = require("./ticket-permission.helper");
+const { calculateTicketAge, getAgingBucket } = require("./ticket-age.helper");
 const timeEntryService = require("./time-entry.service");
 
 /**
@@ -86,6 +87,14 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
     };
   }
 
+  if (query.parentTicketId) {
+    where.parentTicketId = Number(query.parentTicketId);
+  } else if (query.ticketType === "main" || query.isSubTicket === false || query.isSubTicket === "false") {
+    where.parentTicketId = null;
+  } else if (query.ticketType === "sub" || query.isSubTicket === true || query.isSubTicket === "true") {
+    where.parentTicketId = { not: null };
+  }
+
   const startDate = query.startDate || query.createdAfter;
   const endDate = query.endDate || query.createdBefore;
   if (startDate || endDate) {
@@ -133,6 +142,7 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
         priority: { select: { id: true, label: true, sortOrder: true } },
         status: { select: { id: true, label: true, behavior: true } },
         createdBy: { select: { id: true, name: true, email: true } },
+        parentTicket: { select: { id: true, ticketNumber: true, summary: true } },
         assignees: {
           where: { removedAt: null },
           select: {
@@ -149,19 +159,15 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
 
   const now = Date.now();
   const tickets = rawTickets.map((t) => {
-    const endMs = t.closedAt ? new Date(t.closedAt).getTime() : now;
-    const diffMs = Math.max(0, endMs - new Date(t.createdAt).getTime());
-    const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const days = Math.floor(totalHours / 24);
-    const hours = totalHours % 24;
+    const age = calculateTicketAge(t.createdAt, t.closedAt, now);
 
     return {
       ...t,
       subTicketsCount: t._count?.subTickets || 0,
       age: {
-        hours: totalHours,
-        days,
-        formatted: days > 0 ? `${days}d ${hours}h` : `${totalHours}h`,
+        hours: age.hours,
+        days: age.days,
+        formatted: age.formatted,
       },
     };
   });
@@ -408,8 +414,159 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
   };
 };
 
+/**
+ * Generates Ticket Aging Report for all open/unresolved tickets (behavior in OPEN, IN_PROGRESS, ON_HOLD).
+ * - Admin (GLOBAL): sees all tickets across all teams.
+ * - User (TEAM): sees tickets for caller's assigned and collaborating teams.
+ * - Supports filtering by teamId, projectId, priorityId (combined with AND).
+ * - Buckets into: 0-24h, 1-3 days, 3-7 days, 7+ days.
+ */
+const getAgingReport = async ({ query = {}, user, isGlobalScope = false }) => {
+  const baseFilter = {};
+
+  if (!isGlobalScope) {
+    baseFilter.OR = [
+      { createdById: user.id },
+      {
+        assignees: {
+          some: {
+            userId: user.id,
+            removedAt: null,
+          },
+        },
+      },
+      {
+        team: {
+          members: {
+            some: {
+              userId: user.id,
+              removedAt: null,
+            },
+          },
+        },
+      },
+      {
+        collaboratingTeams: {
+          some: {
+            team: {
+              members: {
+                some: {
+                  userId: user.id,
+                  removedAt: null,
+                },
+              },
+            },
+            removedAt: null,
+          },
+        },
+      },
+    ];
+  }
+
+  if (query.teamId) baseFilter.teamId = Number(query.teamId);
+  if (query.projectId) baseFilter.projectId = Number(query.projectId);
+  if (query.priorityId) baseFilter.priorityId = Number(query.priorityId);
+
+  const openWhere = {
+    ...baseFilter,
+    status: {
+      behavior: {
+        notIn: ["RESOLVED", "CLOSED"],
+      },
+    },
+  };
+
+  const resolvedWhere = {
+    ...baseFilter,
+    status: {
+      behavior: "RESOLVED",
+    },
+  };
+
+  const [rawTickets, pendingClosureCount] = await Promise.all([
+    prisma.ticket.findMany({
+      where: openWhere,
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        ticketNumber: true,
+        summary: true,
+        createdAt: true,
+        closedAt: true,
+        team: { select: { id: true, name: true, departmentId: true } },
+        project: { select: { id: true, name: true } },
+        priority: { select: { id: true, label: true, sortOrder: true } },
+        status: { select: { id: true, label: true, behavior: true } },
+        assignees: {
+          where: { removedAt: null },
+          select: {
+            teamId: true,
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    }),
+    prisma.ticket.count({
+      where: resolvedWhere,
+    }),
+  ]);
+
+  const now = Date.now();
+  const buckets = {
+    "0-24h": 0,
+    "1-3 days": 0,
+    "3-7 days": 0,
+    "7+ days": 0,
+  };
+
+  const tickets = rawTickets.map((t) => {
+    const age = calculateTicketAge(t.createdAt, t.closedAt, now);
+    const bucket = getAgingBucket(age.hours);
+    buckets[bucket]++;
+
+    return {
+      id: t.id,
+      ticketNumber: t.ticketNumber,
+      summary: t.summary,
+      createdAt: t.createdAt,
+      age: {
+        hours: age.hours,
+        days: age.days,
+        formatted: age.formatted,
+      },
+      bucket,
+      team: t.team,
+      project: t.project,
+      priority: t.priority,
+      status: t.status,
+      assignees: t.assignees,
+    };
+  });
+
+  let oldestBucket = null;
+  if (buckets["7+ days"] > 0) {
+    oldestBucket = "7+ days";
+  } else if (buckets["3-7 days"] > 0) {
+    oldestBucket = "3-7 days";
+  } else if (buckets["1-3 days"] > 0) {
+    oldestBucket = "1-3 days";
+  } else if (buckets["0-24h"] > 0) {
+    oldestBucket = "0-24h";
+  }
+
+  return {
+    totalOpenTickets: tickets.length,
+    pendingClosureCount,
+    buckets,
+    oldestBucket,
+    tickets,
+  };
+};
+
 module.exports = {
   listTickets,
   getTicketById,
   getTicketStats,
+  getAgingReport,
 };
+

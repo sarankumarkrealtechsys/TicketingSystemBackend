@@ -3,10 +3,109 @@ const { AppError } = require("../../utils/errors");
 const { handleTicketDbErrors } = require("./ticket-common.service");
 
 /**
+ * Recursively force-closes all non-closed descendant sub-tickets of a parent ticket.
+ * - Single recursive CTE query across all hierarchy levels (no N+1).
+ * - Closes any descendant sub-ticket whose status behavior is NOT already 'CLOSED'.
+ * - Resolves appropriate Closed status for each descendant's team (or falls back to default/global).
+ * - Records TicketHistory with updatedById = user.id and cascade remarks.
+ */
+const cascadeCloseSubTickets = async (tx, parentTicket, defaultClosedStatusId, user) => {
+  const descendants = await tx.$queryRaw`
+    WITH RECURSIVE descendant_tree AS (
+      SELECT t.id, t."ticketNumber", t."statusId", t."teamId", t."closedAt", s.behavior as "statusBehavior"
+      FROM tickets t
+      JOIN ticket_statuses s ON t."statusId" = s.id
+      WHERE t."parentTicketId" = ${parentTicket.id}
+
+      UNION ALL
+
+      SELECT child.id, child."ticketNumber", child."statusId", child."teamId", child."closedAt", s.behavior as "statusBehavior"
+      FROM tickets child
+      JOIN ticket_statuses s ON child."statusId" = s.id
+      JOIN descendant_tree parent ON child."parentTicketId" = parent.id
+    )
+    SELECT * FROM descendant_tree;
+  `;
+
+  const nonClosedDescendants = Array.isArray(descendants)
+    ? descendants.filter((d) => d.statusBehavior !== "CLOSED")
+    : [];
+
+  if (nonClosedDescendants.length === 0) {
+    return;
+  }
+
+  // Collect distinct teamIds from descendants to batch resolve team Closed statuses
+  const teamIds = Array.from(
+    new Set(nonClosedDescendants.map((d) => d.teamId).filter(Boolean))
+  );
+
+  const teamClosedStatuses = await tx.ticketStatus.findMany({
+    where: {
+      behavior: "CLOSED",
+      status: "ACTIVE",
+      teamId: { in: teamIds },
+    },
+    orderBy: { sortOrder: "asc" },
+  });
+
+  const teamStatusMap = new Map();
+  for (const s of teamClosedStatuses) {
+    if (!teamStatusMap.has(s.teamId)) {
+      teamStatusMap.set(s.teamId, s.id);
+    }
+  }
+
+  let fallbackClosedStatusId = defaultClosedStatusId;
+  if (!fallbackClosedStatusId) {
+    const globalClosed = await tx.ticketStatus.findFirst({
+      where: { behavior: "CLOSED", status: "ACTIVE", teamId: null },
+      orderBy: { sortOrder: "asc" },
+    });
+    if (globalClosed) {
+      fallbackClosedStatusId = globalClosed.id;
+    }
+  }
+
+  const cascadeNow = new Date();
+
+  for (const sub of nonClosedDescendants) {
+    const targetStatusId =
+      (sub.teamId && teamStatusMap.get(sub.teamId)) || fallbackClosedStatusId;
+
+    if (!targetStatusId) continue;
+
+    const subUpdateData = { statusId: targetStatusId };
+    if (!sub.closedAt) {
+      subUpdateData.closedAt = cascadeNow;
+    }
+
+    await tx.ticket.update({
+      where: { id: sub.id },
+      data: subUpdateData,
+    });
+
+    await tx.ticketHistory.create({
+      data: {
+        ticketId: sub.id,
+        action: "STATUS_CHANGED",
+        previousStatusId: sub.statusId,
+        newStatusId: targetStatusId,
+        previousBehavior: sub.statusBehavior,
+        newBehavior: "CLOSED",
+        remarks: `Auto-closed via cascade from parent ticket #${parentTicket.ticketNumber}`,
+        updatedById: user.id,
+      },
+    });
+  }
+};
+
+/**
  * Changes ticket status (behavior-driven lifecycle).
  * - Gated by TICKET_CHANGE_STATUS (Admin GLOBAL, User ASSIGNED).
  * - Enforces status is active and scoped to ticket primary or collaborating teams.
  * - Set-once semantics for resolvedAt and closedAt milestone timestamps.
+ * - If new status behavior is CLOSED, auto-cascades force-closure to all sub-tickets.
  * - Records STATUS_CHANGED in TicketHistory with previous/new status and behavior.
  */
 const changeTicketStatus = async (ticketId, data, user) => {
@@ -58,6 +157,11 @@ const changeTicketStatus = async (ticketId, data, user) => {
 
   try {
     return await prisma.$transaction(async (tx) => {
+      // If closing parent ticket, auto-cascade close all descendant sub-tickets
+      if (newStatus.behavior === "CLOSED") {
+        await cascadeCloseSubTickets(tx, ticket, newStatus.id, user);
+      }
+
       const updateData = {
         statusId: newStatus.id,
       };
@@ -180,6 +284,10 @@ const closeTicket = async (ticketId, data, user, isGlobalScope = false) => {
 
   try {
     return await prisma.$transaction(async (tx) => {
+      // 1. Recursive descendant collection in a single query (no N+1 loops) & auto-cascade
+      await cascadeCloseSubTickets(tx, ticket, closedStatus.id, user);
+
+      // 2. Update and close the parent ticket
       const updateData = {
         statusId: closedStatus.id,
       };

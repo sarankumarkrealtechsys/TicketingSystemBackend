@@ -13,6 +13,7 @@ const {
   createTicketSchema,
   updateTicketSchema,
   ticketQuerySchema,
+  agingReportQuerySchema,
   ticketIdParamSchema,
   addAssigneeSchema,
   removeAssigneeSchema,
@@ -263,6 +264,15 @@ router.get(
   ticketController.getTicketStats,
 );
 
+// GET /api/tickets/aging-report — Ticket Aging Report (Placed BEFORE /:id to avoid param conflict)
+router.get(
+  "/aging-report",
+  authenticate,
+  requirePermissionKey("TICKET_VIEW"),
+  validate(agingReportQuerySchema),
+  ticketController.getAgingReport,
+);
+
 // GET /api/tickets/:id/history — View ticket audit history (Placed BEFORE generic /:id to prevent route shadowing)
 router.get(
   "/:id/history",
@@ -375,11 +385,11 @@ router.delete(
   ticketController.removeAssignee,
 );
 
-// PATCH /api/tickets/:id/reassign — Full ticket reassignment (Admin GLOBAL only)
+// PATCH /api/tickets/:id/reassign — Full ticket reassignment (Admin GLOBAL, User OWN creator)
 router.patch(
   "/:id/reassign",
   authenticate,
-  requirePermission("TICKET_REASSIGN", resolveGlobal),
+  requirePermission(["TICKET_REASSIGN", "TICKET_ASSIGN"], resolveTicketCreator),
   validate(reassignTicketSchema),
   ticketController.reassignTicket,
 );
@@ -402,11 +412,11 @@ router.delete(
   ticketController.removeCollaboratingTeam,
 );
 
-// PATCH /api/tickets/:id/status — Change ticket status (Admin GLOBAL, User ASSIGNED)
+// PATCH /api/tickets/:id/status — Change ticket status (Admin GLOBAL, User OWN creator or ASSIGNED)
 router.patch(
   "/:id/status",
   authenticate,
-  requirePermission("TICKET_CHANGE_STATUS", resolveTicketAssignee),
+  requirePermission("TICKET_CHANGE_STATUS", resolveTicketCreatorOrAssignee),
   validate(changeStatusSchema),
   ticketController.changeStatus,
 );
@@ -420,11 +430,11 @@ router.post(
   ticketController.closeTicket,
 );
 
-// PATCH /api/tickets/:id/priority — Change ticket priority (Admin GLOBAL, User ASSIGNED)
+// PATCH /api/tickets/:id/priority — Change ticket priority (Admin GLOBAL only)
 router.patch(
   "/:id/priority",
   authenticate,
-  requirePermission("TICKET_CHANGE_PRIORITY", resolveTicketAssignee),
+  requirePermission("TICKET_CHANGE_PRIORITY", resolveGlobal),
   validate(changePrioritySchema),
   ticketController.changePriority,
 );

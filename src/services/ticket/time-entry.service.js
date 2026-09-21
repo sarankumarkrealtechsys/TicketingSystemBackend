@@ -186,10 +186,16 @@ const getTicketTimeSummary = async (ticketId, query = {}, user = null, isGlobalS
   const billableRecord = byBillable.find((b) => b.isBillable === true);
   const nonBillableRecord = byBillable.find((b) => b.isBillable === false);
 
+  const totalMinutes = totalAgg._sum.minutesSpent || 0;
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  const totalHoursFormatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
   return {
     ticketId: ticket.id,
     ticketNumber: ticket.ticketNumber,
-    totalMinutes: totalAgg._sum.minutesSpent || 0,
+    totalMinutes,
+    totalHoursFormatted,
     totalEntries: totalAgg._count._all || 0,
     breakdown: {
       byAssignee: assigneeBreakdown,

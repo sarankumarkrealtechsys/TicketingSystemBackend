@@ -34,7 +34,7 @@ const getTicketHistory = async ({ ticketId, query = {} }) => {
   );
   const skip = (page - 1) * pageSize;
 
-  const [total, history] = await Promise.all([
+  const [total, rawHistory] = await Promise.all([
     prisma.ticketHistory.count({ where }),
     prisma.ticketHistory.findMany({
       where,
@@ -53,6 +53,55 @@ const getTicketHistory = async ({ ticketId, query = {} }) => {
       },
     }),
   ]);
+
+  // Collect referenced entity IDs for batch lookup
+  const statusIds = new Set();
+  const priorityIds = new Set();
+  const teamIds = new Set();
+
+  for (const h of rawHistory) {
+    if (h.previousStatusId) statusIds.add(h.previousStatusId);
+    if (h.newStatusId) statusIds.add(h.newStatusId);
+    if (h.previousPriorityId) priorityIds.add(h.previousPriorityId);
+    if (h.newPriorityId) priorityIds.add(h.newPriorityId);
+    if (h.previousTeamId) teamIds.add(h.previousTeamId);
+    if (h.newTeamId) teamIds.add(h.newTeamId);
+  }
+
+  const [statuses, priorities, teams] = await Promise.all([
+    statusIds.size > 0
+      ? prisma.ticketStatus.findMany({
+          where: { id: { in: Array.from(statusIds) } },
+          select: { id: true, label: true, behavior: true },
+        })
+      : [],
+    priorityIds.size > 0
+      ? prisma.priorityLevel.findMany({
+          where: { id: { in: Array.from(priorityIds) } },
+          select: { id: true, label: true },
+        })
+      : [],
+    teamIds.size > 0
+      ? prisma.team.findMany({
+          where: { id: { in: Array.from(teamIds) } },
+          select: { id: true, name: true },
+        })
+      : [],
+  ]);
+
+  const statusMap = new Map(statuses.map((s) => [s.id, s]));
+  const priorityMap = new Map(priorities.map((p) => [p.id, p]));
+  const teamMap = new Map(teams.map((t) => [t.id, t]));
+
+  const history = rawHistory.map((h) => ({
+    ...h,
+    previousStatus: h.previousStatusId ? statusMap.get(h.previousStatusId) || null : null,
+    newStatus: h.newStatusId ? statusMap.get(h.newStatusId) || null : null,
+    previousPriority: h.previousPriorityId ? priorityMap.get(h.previousPriorityId) || null : null,
+    newPriority: h.newPriorityId ? priorityMap.get(h.newPriorityId) || null : null,
+    previousTeam: h.previousTeamId ? teamMap.get(h.previousTeamId) || null : null,
+    newTeam: h.newTeamId ? teamMap.get(h.newTeamId) || null : null,
+  }));
 
   return {
     history,

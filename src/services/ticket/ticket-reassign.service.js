@@ -174,8 +174,53 @@ const reassignTicket = async (ticketId, data, user) => {
         }
       }
 
-      // 4. Record single REASSIGNED entry in TicketHistory
+      // 4. If ticket was CLOSED, automatically transition back to active OPEN status
       const wasClosed = ticket.status.behavior === "CLOSED";
+      if (wasClosed) {
+        let openStatus = await tx.ticketStatus.findFirst({
+          where: {
+            behavior: "OPEN",
+            status: "ACTIVE",
+            teamId: targetTeam.id,
+          },
+          orderBy: { sortOrder: "asc" },
+        });
+
+        if (!openStatus) {
+          openStatus = await tx.ticketStatus.findFirst({
+            where: {
+              behavior: "OPEN",
+              status: "ACTIVE",
+              teamId: null,
+            },
+            orderBy: { sortOrder: "asc" },
+          });
+        }
+
+        if (openStatus) {
+          await tx.ticket.update({
+            where: { id: ticket.id },
+            data: {
+              statusId: openStatus.id,
+            },
+          });
+
+          await tx.ticketHistory.create({
+            data: {
+              ticketId: ticket.id,
+              action: "STATUS_CHANGED",
+              previousStatusId: ticket.statusId,
+              newStatusId: openStatus.id,
+              previousBehavior: "CLOSED",
+              newBehavior: "OPEN",
+              remarks: "Reopened to Open status upon reassignment",
+              updatedById: user.id,
+            },
+          });
+        }
+      }
+
+      // 5. Record single REASSIGNED entry in TicketHistory
       await tx.ticketHistory.create({
         data: {
           ticketId: ticket.id,
@@ -204,7 +249,7 @@ const reassignTicket = async (ticketId, data, user) => {
         },
       });
 
-      // 5. Return updated ticket
+      // 6. Return updated ticket
       return tx.ticket.findUnique({
         where: { id: ticket.id },
         include: {

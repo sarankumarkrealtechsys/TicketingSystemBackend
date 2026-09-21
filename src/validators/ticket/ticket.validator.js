@@ -104,6 +104,9 @@ const ticketQuerySchema = {
     endDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "endDate must be a valid date string" }).optional(),
     createdAfter: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "createdAfter must be a valid date string" }).optional(),
     createdBefore: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "createdBefore must be a valid date string" }).optional(),
+    ticketType: z.enum(["all", "main", "sub"]).optional(),
+    isSubTicket: z.union([z.enum(["all", "true", "false"]), z.boolean()]).optional(),
+    parentTicketId: z.coerce.number().int().positive().optional(),
     page: z.coerce.number().int().min(1).optional().default(1),
     pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
     limit: z.coerce.number().int().min(1).max(100).optional(),
@@ -329,10 +332,19 @@ const updateTicketSchema = {
   }),
 };
 
+const agingReportQuerySchema = {
+  query: z.object({
+    teamId: z.coerce.number().int().positive().optional(),
+    projectId: z.coerce.number().int().positive().optional(),
+    priorityId: z.coerce.number().int().positive().optional(),
+  }),
+};
+
 module.exports = {
   createTicketSchema,
   updateTicketSchema,
   ticketQuerySchema,
+  agingReportQuerySchema,
   ticketIdParamSchema,
   addAssigneeSchema,
   removeAssigneeSchema,

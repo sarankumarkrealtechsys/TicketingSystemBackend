@@ -85,6 +85,9 @@ const createTicket = async (data, user, isGlobalScope = false) => {
     if (status.status !== "ACTIVE") {
       throw new AppError("Cannot select an inactive ticket status", 400);
     }
+    if (status.behavior !== "OPEN") {
+      throw new AppError("Newly created tickets must have an OPEN status", 400);
+    }
     // Check team scoping
     if (status.teamId !== null && status.teamId !== team.id) {
       throw new AppError(

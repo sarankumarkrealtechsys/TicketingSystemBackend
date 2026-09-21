@@ -392,12 +392,31 @@ const updateTicket = async (req, res, next) => {
   }
 };
 
+const getAgingReport = async (req, res, next) => {
+  try {
+    const isGlobalScope = req.permissionScope === "GLOBAL";
+    const data = await ticketQueryService.getAgingReport({
+      query: req.query,
+      user: req.user,
+      isGlobalScope,
+    });
+
+    return res.status(200).json({
+      status: "success",
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createTicket,
   updateTicket,
   listTickets,
   getTicketById,
   getTicketStats,
+  getAgingReport,
   addAssignee,
   removeAssignee,
   reassignTicket,
