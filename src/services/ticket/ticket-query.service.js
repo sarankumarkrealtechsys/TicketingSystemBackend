@@ -207,7 +207,36 @@ const getTicketById = async (id, user, isGlobalScope = false, userPermissions = 
           id: true,
           ticketNumber: true,
           summary: true,
+          description: true,
+          createdAt: true,
+          updatedAt: true,
+          resolvedAt: true,
+          closedAt: true,
+          priority: { select: { id: true, label: true, sortOrder: true } },
           status: { select: { id: true, label: true, behavior: true } },
+          team: { select: { id: true, name: true } },
+          assignees: {
+            where: { removedAt: null },
+            select: {
+              id: true,
+              userId: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  username: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+            },
+          },
         },
       },
       assignees: {
