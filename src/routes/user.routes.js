@@ -46,6 +46,15 @@ router.get(
   userAccountController.getUserProfile,
 );
 
+// GET /api/users/:userId/performance — User Performance Profile metrics and tickets
+router.get(
+  "/:userId/performance",
+  authenticate,
+  validate(userIdParamSchema),
+  requirePermission("USER_VIEW", resolveOwn),
+  userAccountController.getUserPerformance,
+);
+
 // PATCH /api/users/:userId — Edit user (Admin GLOBAL, User OWN)
 router.patch(
   "/:userId",

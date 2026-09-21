@@ -13,12 +13,7 @@ const { isTokenBlacklisted } = require("../utils/tokenBlacklist");
 const authenticate = async (req, res, next) => {
   try {
     let token = null;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.substring(7).trim();
-    } else {
-      token = req.cookies?.[env.COOKIE_NAME];
-    }
+    token = req.cookies?.[env.COOKIE_NAME];
 
     if (!token) {
       return res.status(401).json({

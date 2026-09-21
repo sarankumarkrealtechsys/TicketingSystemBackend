@@ -1,5 +1,4 @@
 const { env } = require("../config/env");
-const jwt = require("jsonwebtoken");
 const authService = require("../services/auth/auth.service");
 const { getPermissions } = require("../services/auth/permission.service");
 const { blacklistUserTokens } = require("../utils/tokenBlacklist");
@@ -58,7 +57,6 @@ const login = async (req, res, next) => {
       status: "success",
       message: "Login successful",
       data: {
-        token,
         user: {
           id: user.id,
           name: user.name,
@@ -97,12 +95,10 @@ const getMe = async (req, res, next) => {
     }
 
     const permissions = await getPermissions(user, req);
-    const activeToken = req.token || req.cookies?.[env.COOKIE_NAME] || null;
 
     return res.status(200).json({
       status: "success",
       data: {
-        token: activeToken,
         user: {
           id: user.id,
           name: user.name,
@@ -130,18 +126,9 @@ const getMe = async (req, res, next) => {
  */
 const logout = async (req, res, next) => {
   try {
-    // Blacklist the user's current token so it cannot be reused
-    const token = req.cookies?.[env.COOKIE_NAME];
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, env.JWT_SECRET);
-        const userId = decoded.userId || decoded.id;
-        if (userId) {
-          await blacklistUserTokens(userId);
-        }
-      } catch (_err) {
-        // Token may be invalid/expired — still clear the cookie
-      }
+    // Blacklist the user's current token using user from authenticate middleware
+    if (req.user?.id) {
+      await blacklistUserTokens(req.user.id);
     }
 
     res.clearCookie(env.COOKIE_NAME, authService.getClearCookieOptions());

@@ -28,8 +28,8 @@ const blacklistUserTokens = async (userId, maxTokenLifetimeSeconds = 2592000) =>
     if (!redisClient || !redisClient.isOpen) return;
 
     const key = `token-blacklist:user:${userId}`;
-    // Store the timestamp (in seconds) at which the blacklist was issued
-    const blacklistedAt = Math.floor(Date.now() / 1000);
+    // Store the timestamp in milliseconds for sub-second precision
+    const blacklistedAt = Date.now();
 
     await redisClient.set(key, String(blacklistedAt), {
       EX: maxTokenLifetimeSeconds,
@@ -60,8 +60,9 @@ const isTokenBlacklisted = async (userId, iat) => {
     if (!blacklistedAtStr) return false;
 
     const blacklistedAt = parseInt(blacklistedAtStr, 10);
-    // Token is blacklisted if it was issued before the blacklist timestamp
-    return iat <= blacklistedAt;
+    // iat is in seconds (JWT standard); blacklistedAt is in milliseconds.
+    // Token is blacklisted if it was issued strictly before the blacklist time.
+    return (iat * 1000) < blacklistedAt;
   } catch (err) {
     logger.warn(`[Token Blacklist Check Error] userId=${userId}: ${err.message || err}`);
     // Fail-open: if Redis is unavailable, allow the request through

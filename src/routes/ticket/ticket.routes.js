@@ -5,7 +5,6 @@ const {
   requirePermission,
   requirePermissionKey,
 } = require("../../middlewares/rbac");
-const { resolveGlobal } = require("../../services/auth/scope.service");
 const { validate } = require("../../validators");
 const { upload } = require("../../middlewares/upload");
 const { uploadRateLimiter } = require("../../middlewares/rateLimiter");
@@ -191,32 +190,8 @@ const resolveParentTicketCreatorOrAssignee = async (user, _resource, req) => {
   return isCreator || isAssignee;
 };
 
-/**
- * Scope resolver for TICKET_HISTORY_VIEW (strictly OWN + ASSIGNED).
- * Admin (GLOBAL scope) automatically short-circuits in requirePermission.
- * Standard user must be either:
- * - The ticket creator (OWN scope), OR
- * - An active assignee on the ticket (ASSIGNED scope).
- * Strictly OWN + ASSIGNED — no TEAM scope.
- */
-const resolveTicketHistoryView = async (user, _resource, req) => {
-  const ticketId = Number(req.params.id);
-  if (!ticketId) return false;
-
-  const ticket = await prisma.ticket.findUnique({
-    where: { id: ticketId },
-    select: {
-      createdById: true,
-      assignees: {
-        where: { removedAt: null, userId: user.id },
-        select: { id: true },
-      },
-    },
-  });
-  if (!ticket) return false;
-
-  return ticket.createdById === user.id || ticket.assignees.length > 0;
-};
+// resolveTicketHistoryView removed — history now uses resolveTicketView
+// to match the seeded TICKET_HISTORY_VIEW: TEAM scope.
 
 /**
  * Scope resolver for TICKET_LOG_TIME (strictly OWN scope for standard user).
@@ -242,7 +217,7 @@ const resolveTicketLogTime = async (user, _resource, req) => {
 router.post(
   "/",
   authenticate,
-  requirePermissionKey("TICKET_CREATE"),
+  requirePermission("TICKET_CREATE"),
   validate(createTicketSchema),
   ticketController.createTicket,
 );
@@ -278,7 +253,7 @@ router.get(
   "/:id/history",
   authenticate,
   validate(ticketIdParamSchema),
-  requirePermission("TICKET_HISTORY_VIEW", resolveTicketHistoryView),
+  requirePermission("TICKET_HISTORY_VIEW", resolveTicketView),
   validate(ticketHistoryQuerySchema),
   ticketHistoryController.getTicketHistory,
 );
@@ -398,7 +373,7 @@ router.patch(
 router.post(
   "/:id/teams",
   authenticate,
-  requirePermission("TICKET_TEAM_MANAGE", resolveGlobal),
+  requirePermission("TICKET_TEAM_MANAGE"),
   validate(addCollaboratingTeamSchema),
   ticketController.addCollaboratingTeam,
 );
@@ -407,16 +382,16 @@ router.post(
 router.delete(
   "/:id/teams/:teamId",
   authenticate,
-  requirePermission("TICKET_TEAM_MANAGE", resolveGlobal),
+  requirePermission("TICKET_TEAM_MANAGE"),
   validate(removeCollaboratingTeamSchema),
   ticketController.removeCollaboratingTeam,
 );
 
-// PATCH /api/tickets/:id/status — Change ticket status (Admin GLOBAL, User OWN creator or ASSIGNED)
+// PATCH /api/tickets/:id/status — Change ticket status (Admin GLOBAL, User ASSIGNED only)
 router.patch(
   "/:id/status",
   authenticate,
-  requirePermission("TICKET_CHANGE_STATUS", resolveTicketCreatorOrAssignee),
+  requirePermission("TICKET_CHANGE_STATUS", resolveTicketAssignee),
   validate(changeStatusSchema),
   ticketController.changeStatus,
 );
@@ -430,11 +405,11 @@ router.post(
   ticketController.closeTicket,
 );
 
-// PATCH /api/tickets/:id/priority — Change ticket priority (Admin GLOBAL only)
+// PATCH /api/tickets/:id/priority — Change ticket priority (Admin GLOBAL, User ASSIGNED only)
 router.patch(
   "/:id/priority",
   authenticate,
-  requirePermission("TICKET_CHANGE_PRIORITY", resolveGlobal),
+  requirePermission("TICKET_CHANGE_PRIORITY", resolveTicketAssignee),
   validate(changePrioritySchema),
   ticketController.changePriority,
 );

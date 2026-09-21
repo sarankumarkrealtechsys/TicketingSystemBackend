@@ -12,13 +12,11 @@ const { getOrSetCache, invalidateCachePattern } = require("../../utils/cache");
 
 const createTicket = async (req, res, next) => {
   try {
-    const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = userPermissions["TICKET_CREATE"]?.includes("GLOBAL");
-
+    // req.isGlobalScope is set by requirePermission("TICKET_CREATE") middleware
     const data = await ticketCreateService.createTicket(
       req.body,
       req.user,
-      isGlobalScope,
+      req.isGlobalScope,
     );
 
     await invalidateCachePattern("ticket-stats:*");

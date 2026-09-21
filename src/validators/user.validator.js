@@ -17,7 +17,7 @@ const createUserSchema = {
       .min(8, "Password must be at least 8 characters long")
       .max(100, "Password cannot exceed 100 characters")
       .regex(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~])/,
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])/,
         "Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 digit, and 1 special character",
       ),
     email: z
@@ -88,6 +88,15 @@ const updateUserSchema = {
       .email("Invalid email address")
       .max(190, "Email cannot exceed 190 characters")
       .trim()
+      .optional(),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters long")
+      .max(100, "Password cannot exceed 100 characters")
+      .regex(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])/,
+        "Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 digit, and 1 special character",
+      )
       .optional(),
   }),
 };

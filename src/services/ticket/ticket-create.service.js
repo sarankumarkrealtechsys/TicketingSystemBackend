@@ -32,6 +32,23 @@ const createTicket = async (data, user, isGlobalScope = false) => {
     throw new AppError("Cannot create ticket for an inactive team", 400);
   }
 
+  // Enforce team membership for non-GLOBAL (scoped) users
+  if (!isGlobalScope) {
+    const userTeamMembership = await prisma.userTeam.findFirst({
+      where: {
+        userId: user.id,
+        teamId: targetTeamId,
+        removedAt: null,
+      },
+    });
+    if (!userTeamMembership) {
+      throw new AppError(
+        "You can only create tickets for teams you are a member of",
+        403,
+      );
+    }
+  }
+
   // 2. Validate Project exists and is active
   const project = await prisma.project.findUnique({
     where: { id: Number(data.projectId) },
@@ -246,6 +263,30 @@ const createTicket = async (data, user, isGlobalScope = false) => {
         const uniqueCollabTeamIds = [...new Set(data.collaboratingTeamIds.map(Number))].filter(
           (id) => id !== team.id
         );
+
+        // Validate all collaborating teams exist and are active
+        if (uniqueCollabTeamIds.length > 0) {
+          const collabTeams = await tx.team.findMany({
+            where: { id: { in: uniqueCollabTeamIds } },
+            select: { id: true, status: true, name: true },
+          });
+          if (collabTeams.length !== uniqueCollabTeamIds.length) {
+            const foundIds = new Set(collabTeams.map((t) => t.id));
+            const missing = uniqueCollabTeamIds.filter((id) => !foundIds.has(id));
+            throw new AppError(
+              `Collaborating team(s) not found: ${missing.join(", ")}`,
+              404,
+            );
+          }
+          const inactiveTeams = collabTeams.filter((t) => t.status !== "ACTIVE");
+          if (inactiveTeams.length > 0) {
+            throw new AppError(
+              `Cannot add inactive collaborating team(s): ${inactiveTeams.map((t) => t.name).join(", ")}`,
+              400,
+            );
+          }
+        }
+
         for (const collabTeamId of uniqueCollabTeamIds) {
           await tx.ticketTeam.create({
             data: {
