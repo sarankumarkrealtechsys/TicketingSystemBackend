@@ -343,12 +343,12 @@ router.get(
   ticketController.getTicketById,
 );
 
-// PATCH /api/tickets/:id — Update ticket summary, description, and custom fields (Admin GLOBAL, User OWN creator or ASSIGNED)
+// PATCH /api/tickets/:id — Update ticket summary, description, and custom fields (Admin GLOBAL, User OWN creator)
 router.patch(
   "/:id",
   authenticate,
   validate(ticketIdParamSchema),
-  requirePermission("TICKET_UPDATE", resolveTicketCreatorOrAssignee),
+  requirePermission("TICKET_UPDATE", resolveTicketCreator),
   validate(updateTicketSchema),
   ticketController.updateTicket,
 );
@@ -464,11 +464,11 @@ router.post(
   ticketController.closeTicket,
 );
 
-// PATCH /api/tickets/:id/priority — Change ticket priority (Admin GLOBAL, User ASSIGNED only)
+// PATCH /api/tickets/:id/priority — Change ticket priority (Admin GLOBAL, User OWN or ASSIGNED)
 router.patch(
   "/:id/priority",
   authenticate,
-  requirePermission("TICKET_CHANGE_PRIORITY", resolveTicketAssignee),
+  requirePermission("TICKET_CHANGE_PRIORITY", resolveTicketCreatorOrAssignee),
   validate(changePrioritySchema),
   ticketController.changePriority,
 );

@@ -19,11 +19,31 @@ const {
 
 const router = Router();
 
-// POST /api/ticket-fields — Admin only (TICKET_FIELD_MANAGE at GLOBAL scope)
+const { prisma } = require("../../lib/prisma");
+
+const resolveFieldDefinitionCreate = async (user, resource, req) => {
+  const targetTeamId = req.body?.teamId ? Number(req.body.teamId) : null;
+  if (!targetTeamId) {
+    return !!req.isGlobalScope;
+  }
+  const activeMembership = await prisma.userTeam.findFirst({
+    where: {
+      userId: user.id,
+      teamId: targetTeamId,
+      removedAt: null,
+    },
+  });
+  return !!activeMembership;
+};
+
+// POST /api/ticket-fields — Admin (GLOBAL) or Team Creators (scoped to their team)
 router.post(
   "/",
   authenticate,
-  requirePermission("TICKET_FIELD_MANAGE", resolveGlobal),
+  requirePermission(
+    ["TICKET_FIELD_MANAGE", "TICKET_CREATE"],
+    resolveFieldDefinitionCreate,
+  ),
   validate(createFieldDefinitionSchema),
   createFieldDefinition,
 );

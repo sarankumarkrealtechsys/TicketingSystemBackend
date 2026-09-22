@@ -47,6 +47,7 @@ const isCreatorOrAssignee = (ticket, user) => {
 const computeTicketActions = (ticket, user, userPermissions = {}) => {
   if (!ticket || !user) {
     return {
+      update: false,
       addAssignee: false,
       removeAssignee: false,
       reassign: false,
@@ -74,6 +75,7 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
   const isResolved = ticket.status?.behavior === "RESOLVED";
 
   return {
+    update: !isClosed && (hasGlobal("TICKET_UPDATE") || isCreator),
     addAssignee: hasGlobal("TICKET_ASSIGN") || (hasOwn("TICKET_ASSIGN") && isCreator),
     removeAssignee: hasGlobal("TICKET_ASSIGN") || (hasOwn("TICKET_ASSIGN") && isCreator),
     reassign:
@@ -81,22 +83,25 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
       (hasOwn("TICKET_REASSIGN") && isCreator),
     changePriority:
       hasGlobal("TICKET_CHANGE_PRIORITY") ||
+      (hasOwn("TICKET_CHANGE_PRIORITY") && (isCreator || isAssignee)) ||
       (hasAssigned("TICKET_CHANGE_PRIORITY") && isAssignee),
     changeStatus:
       hasGlobal("TICKET_CHANGE_STATUS") ||
       (hasAssigned("TICKET_CHANGE_STATUS") && isAssignee),
     createSubticket:
       hasGlobal("TICKET_CREATE_SUBTICKET") ||
-      (hasOwn("TICKET_CREATE_SUBTICKET") && isCreator) ||
+      (hasOwn("TICKET_CREATE_SUBTICKET") && (isCreator || isAssignee)) ||
       (hasAssigned("TICKET_CREATE_SUBTICKET") && isAssignee),
-    logTime: hasGlobal("TICKET_LOG_TIME") || (hasOwn("TICKET_LOG_TIME") && isAssignee),
+    logTime:
+      hasGlobal("TICKET_LOG_TIME") ||
+      (hasOwn("TICKET_LOG_TIME") && (isCreator || isAssignee)),
     addAttachment:
       hasGlobal("TICKET_ATTACHMENT_MANAGE") ||
-      (hasOwn("TICKET_ATTACHMENT_MANAGE") && isCreator) ||
+      (hasOwn("TICKET_ATTACHMENT_MANAGE") && (isCreator || isAssignee)) ||
       (hasAssigned("TICKET_ATTACHMENT_MANAGE") && isAssignee),
     removeAttachment:
       hasGlobal("TICKET_ATTACHMENT_MANAGE") ||
-      (hasOwn("TICKET_ATTACHMENT_MANAGE") && isCreator) ||
+      (hasOwn("TICKET_ATTACHMENT_MANAGE") && (isCreator || isAssignee)) ||
       (hasAssigned("TICKET_ATTACHMENT_MANAGE") && isAssignee),
     // Standard user can only close if they are an active assignee AND ticket status is RESOLVED.
     // Admin can close any ticket that is not already CLOSED.
@@ -105,7 +110,7 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
       (hasAssigned("TICKET_CLOSE") && isAssignee && isResolved),
     addRemark:
       hasGlobal("TICKET_ADD_REMARK") ||
-      (hasOwn("TICKET_ADD_REMARK") && isCreator) ||
+      (hasOwn("TICKET_ADD_REMARK") && (isCreator || isAssignee)) ||
       (hasAssigned("TICKET_ADD_REMARK") && isAssignee),
     manageTeams: hasGlobal("TICKET_TEAM_MANAGE"),
   };
