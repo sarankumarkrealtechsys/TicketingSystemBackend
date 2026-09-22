@@ -1,5 +1,6 @@
 const ticketCreateService = require("../../services/ticket/ticket-create.service");
 const ticketUpdateService = require("../../services/ticket/ticket-update.service");
+const ticketDeleteService = require("../../services/ticket/ticket-delete.service");
 const ticketQueryService = require("../../services/ticket/ticket-query.service");
 const ticketAssigneeService = require("../../services/ticket/ticket-assignee.service");
 const ticketReassignService = require("../../services/ticket/ticket-reassign.service");
@@ -322,7 +323,11 @@ const changePriority = async (req, res, next) => {
 const createSubTicket = async (req, res, next) => {
   try {
     const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = userPermissions["TICKET_CREATE"]?.includes("GLOBAL");
+    const isGlobalScope =
+      req.isGlobalScope ||
+      userPermissions["TICKET_CREATE_SUBTICKET"]?.includes("GLOBAL") ||
+      userPermissions["ROLE_MANAGE"]?.includes("GLOBAL") ||
+      userPermissions["TICKET_CREATE"]?.includes("GLOBAL");
 
     const data = await ticketCreateService.createTicket(
       { ...req.body, parentTicketId: Number(req.params.id) },
@@ -408,9 +413,36 @@ const getAgingReport = async (req, res, next) => {
   }
 };
 
+const deleteTicket = async (req, res, next) => {
+  try {
+    const userPermissions = await getPermissions(req.user, req);
+    const isGlobalScope = Boolean(
+      userPermissions["TICKET_UPDATE"]?.includes("GLOBAL") ||
+        userPermissions["ROLE_MANAGE"]?.includes("GLOBAL"),
+    );
+
+    const data = await ticketDeleteService.deleteTicket(
+      Number(req.params.id),
+      req.user,
+      isGlobalScope,
+    );
+
+    await invalidateCachePattern("ticket-stats:*");
+
+    return res.status(200).json({
+      status: "success",
+      message: data.message || "Ticket deleted successfully",
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createTicket,
   updateTicket,
+  deleteTicket,
   listTickets,
   getTicketById,
   getTicketStats,

@@ -8,17 +8,19 @@ const { prisma } = require("../../lib/prisma");
  * - All other 20 keys support only GLOBAL.
  */
 const PERMISSION_ALLOWED_SCOPES = {
-  // ── 19 Permissions supporting Scoped Access (from USER_PERMISSIONS) ──
+  // ── Permissions supporting Scoped Access (from USER_PERMISSIONS) ──
   USER_VIEW: ["GLOBAL", "OWN"],
   USER_UPDATE: ["GLOBAL", "OWN"],
+  USER_PERFORMANCE_VIEW: ["GLOBAL", "OWN"],
   DEPARTMENT_VIEW: ["GLOBAL", "OWN"],
   TEAM_VIEW: ["GLOBAL", "TEAM"],
   PROJECT_VIEW: ["GLOBAL", "TEAM"],
   STATUS_CREATE: ["GLOBAL", "TEAM"],
   TICKET_CREATE: ["GLOBAL", "TEAM"],
   TICKET_VIEW: ["GLOBAL", "TEAM"],
-  TICKET_UPDATE: ["GLOBAL", "ASSIGNED"],
+  TICKET_UPDATE: ["GLOBAL", "OWN", "ASSIGNED"],
   TICKET_ASSIGN: ["GLOBAL", "OWN"],
+  TICKET_REASSIGN: ["GLOBAL", "OWN"],
   TICKET_CHANGE_STATUS: ["GLOBAL", "ASSIGNED"],
   TICKET_CHANGE_PRIORITY: ["GLOBAL", "ASSIGNED"],
   TICKET_CREATE_SUBTICKET: ["GLOBAL", "OWN", "ASSIGNED"],
@@ -29,7 +31,7 @@ const PERMISSION_ALLOWED_SCOPES = {
   TICKET_HISTORY_VIEW: ["GLOBAL", "TEAM"],
   DASHBOARD_VIEW: ["GLOBAL", "OWN"],
 
-  // ── 21 Admin / Global-Only Permissions (not granted to User role) ──
+  // ── Admin / Global-Only Permissions ──
   USER_CREATE: ["GLOBAL"],
   USER_DELETE: ["GLOBAL"],
   DEPARTMENT_CREATE: ["GLOBAL"],
@@ -46,9 +48,7 @@ const PERMISSION_ALLOWED_SCOPES = {
   STATUS_RETIRE: ["GLOBAL"],
   TICKET_FIELD_MANAGE: ["GLOBAL"],
   TEAM_MEMBERSHIP_MANAGE: ["GLOBAL"],
-  TICKET_REASSIGN: ["GLOBAL"],
   TICKET_TEAM_MANAGE: ["GLOBAL"],
-  USER_PERFORMANCE_VIEW: ["GLOBAL"],
   ROLE_MANAGE: ["GLOBAL"],
   SYSTEM_SETTINGS_MANAGE: ["GLOBAL"],
 };

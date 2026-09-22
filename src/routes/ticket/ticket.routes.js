@@ -95,10 +95,11 @@ const resolveTicketView = async (user, _resource, req) => {
 };
 
 /**
- * Scope resolver for TICKET_ATTACHMENT_MANAGE (OWN or ASSIGNED).
+ * Scope resolver for TICKET_ATTACHMENT_MANAGE / TICKET_UPDATE (OWN or ASSIGNED).
  * Admin (GLOBAL scope) automatically short-circuits in requirePermission.
  * Standard user must be either:
  * - The ticket creator (OWN scope), OR
+ * - The parent ticket creator if this is a sub-ticket (OWN scope), OR
  * - An active assignee on the ticket (ASSIGNED scope).
  * Zero redundant getPermissions() calls.
  */
@@ -110,6 +111,10 @@ const resolveTicketAttachmentManage = async (user, _resource, req) => {
     where: { id: ticketId },
     select: {
       createdById: true,
+      parentTicketId: true,
+      parentTicket: {
+        select: { createdById: true },
+      },
       assignees: {
         where: { userId: user.id, removedAt: null },
         select: { id: true },
@@ -119,9 +124,12 @@ const resolveTicketAttachmentManage = async (user, _resource, req) => {
   if (!ticket) return false;
 
   const isCreator = Number(ticket.createdById) === Number(user.id);
+  const isParentCreator =
+    ticket.parentTicket &&
+    Number(ticket.parentTicket.createdById) === Number(user.id);
   const isAssignee = ticket.assignees.length > 0;
 
-  return isCreator || isAssignee;
+  return isCreator || Boolean(isParentCreator) || isAssignee;
 };
 
 const resolveTicketCreatorOrAssignee = resolveTicketAttachmentManage;
@@ -146,19 +154,30 @@ const resolveTicketAssignee = async (user, _resource, req) => {
 };
 
 /**
- * Scope resolver for TICKET_ASSIGN when caller holds OWN scope.
+ * Scope resolver for TICKET_ASSIGN and TICKET_DELETE when caller holds OWN scope.
  * Admin (GLOBAL) skips this via rbac middleware short-circuit.
- * Standard user (OWN) is verified against ticket.createdById === user.id.
+ * Standard user (OWN) is verified against ticket.createdById === user.id
+ * or parentTicket.createdById === user.id for sub-tickets.
  */
 const resolveTicketCreator = async (user, _resource, req) => {
   const ticketId = Number(req.params.id);
   if (!ticketId) return false;
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketId },
-    select: { createdById: true },
+    select: {
+      createdById: true,
+      parentTicketId: true,
+      parentTicket: {
+        select: { createdById: true },
+      },
+    },
   });
   if (!ticket) return false;
-  return ticket.createdById === user.id;
+  const isCreator = Number(ticket.createdById) === Number(user.id);
+  const isParentCreator =
+    ticket.parentTicket &&
+    Number(ticket.parentTicket.createdById) === Number(user.id);
+  return isCreator || Boolean(isParentCreator);
 };
 
 /**
@@ -213,11 +232,29 @@ const resolveTicketLogTime = async (user, _resource, req) => {
   return !!activeAssignment;
 };
 
-// POST /api/tickets — Create Ticket: Admin (GLOBAL) or User (TEAM scope verified in service)
+/**
+ * Scope resolver for TICKET_CREATE (TEAM scope).
+ * Admin (GLOBAL) automatically short-circuits in requirePermission.
+ * Standard user: must be an active member of the target team (req.body.teamId).
+ */
+const resolveTicketCreate = async (user, _resource, req) => {
+  const teamId = Number(req.body?.teamId);
+  if (!teamId) return false;
+  const membership = await prisma.userTeam.findFirst({
+    where: {
+      userId: user.id,
+      teamId,
+      removedAt: null,
+    },
+  });
+  return !!membership;
+};
+
+// POST /api/tickets — Create Ticket: Admin (GLOBAL) or User (TEAM scope)
 router.post(
   "/",
   authenticate,
-  requirePermission("TICKET_CREATE"),
+  requirePermission(["TICKET_CREATE", "ROLE_MANAGE"], resolveTicketCreate),
   validate(createTicketSchema),
   ticketController.createTicket,
 );
@@ -285,6 +322,18 @@ router.get(
   timeEntryController.listTicketTimeEntries,
 );
 
+// POST /api/tickets/:id/sub-tickets — Create Sub-Ticket under parent ticket
+router.post(
+  "/:id/sub-tickets",
+  authenticate,
+  validate(createSubTicketSchema),
+  requirePermission(
+    ["TICKET_CREATE_SUBTICKET", "ROLE_MANAGE"],
+    resolveParentTicketCreatorOrAssignee,
+  ),
+  ticketController.createSubTicket,
+);
+
 // GET /api/tickets/:id — View single ticket detail (Gated by team-scope resolver)
 router.get(
   "/:id",
@@ -294,13 +343,23 @@ router.get(
   ticketController.getTicketById,
 );
 
-// PATCH /api/tickets/:id — Update ticket summary, description, and custom fields (Admin GLOBAL, User ASSIGNED)
+// PATCH /api/tickets/:id — Update ticket summary, description, and custom fields (Admin GLOBAL, User OWN creator or ASSIGNED)
 router.patch(
   "/:id",
   authenticate,
-  requirePermission("TICKET_UPDATE", resolveTicketAssignee),
+  validate(ticketIdParamSchema),
+  requirePermission("TICKET_UPDATE", resolveTicketCreatorOrAssignee),
   validate(updateTicketSchema),
   ticketController.updateTicket,
+);
+
+// DELETE /api/tickets/:id — Delete ticket and all associated child records (Admin GLOBAL, User OWN creator)
+router.delete(
+  "/:id",
+  authenticate,
+  validate(ticketIdParamSchema),
+  requirePermission(["TICKET_UPDATE", "ROLE_MANAGE"], resolveTicketCreator),
+  ticketController.deleteTicket,
 );
 
 // POST /api/tickets/:id/attachments — Upload ticket attachment

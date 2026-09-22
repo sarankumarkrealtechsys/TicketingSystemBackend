@@ -51,7 +51,7 @@ router.get(
   "/:userId/performance",
   authenticate,
   validate(userIdParamSchema),
-  requirePermission("USER_VIEW", resolveOwn),
+  requirePermission(["USER_PERFORMANCE_VIEW", "USER_VIEW"], resolveOwn),
   userAccountController.getUserPerformance,
 );
 

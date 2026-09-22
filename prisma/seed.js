@@ -110,6 +110,7 @@ const USER_PERMISSIONS = [
   { key: 'TICKET_VIEW',              scope: 'TEAM' },
   { key: 'TICKET_UPDATE',            scope: 'ASSIGNED' },
   { key: 'TICKET_ASSIGN',            scope: 'OWN' },
+  { key: 'TICKET_REASSIGN',          scope: 'OWN' },
   { key: 'TICKET_CHANGE_STATUS',     scope: 'ASSIGNED' },
   { key: 'TICKET_CHANGE_PRIORITY',   scope: 'ASSIGNED' },
   { key: 'TICKET_CREATE_SUBTICKET',  scope: 'OWN' },

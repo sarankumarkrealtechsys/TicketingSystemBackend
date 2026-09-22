@@ -208,6 +208,12 @@ const getTicketById = async (id, user, isGlobalScope = false, userPermissions = 
           ticketNumber: true,
           summary: true,
           description: true,
+          projectId: true,
+          teamId: true,
+          priorityId: true,
+          statusId: true,
+          createdById: true,
+          version: true,
           createdAt: true,
           updatedAt: true,
           resolvedAt: true,
@@ -366,8 +372,21 @@ const getTicketById = async (id, user, isGlobalScope = false, userPermissions = 
 
   const actions = computeTicketActions(ticket, user, userPermissions);
 
+  const subTicketsWithActions = (ticket.subTickets || []).map((st) => ({
+    ...st,
+    actions: computeTicketActions(
+      {
+        ...st,
+        parentTicket: ticket,
+      },
+      user,
+      userPermissions
+    ),
+  }));
+
   return {
     ...ticket,
+    subTickets: subTicketsWithActions,
     subTicketsRollup: rollup,
     timeLogged: {
       totalMinutes,

@@ -7,11 +7,15 @@
  */
 
 /**
- * Checks whether user is the creator of the ticket.
+ * Checks whether user is the creator of the ticket (or creator of parent ticket for sub-tickets).
  */
 const isTicketCreator = (ticket, user) => {
   if (!ticket || !user) return false;
-  return Number(ticket.createdById) === Number(user.id);
+  const isDirectCreator = Number(ticket.createdById) === Number(user.id);
+  const isParentCreator =
+    ticket.parentTicket &&
+    Number(ticket.parentTicket.createdById) === Number(user.id);
+  return isDirectCreator || Boolean(isParentCreator);
 };
 
 /**
@@ -54,6 +58,7 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
       removeAttachment: false,
       close: false,
       addRemark: false,
+      manageTeams: false,
     };
   }
 
@@ -73,14 +78,13 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
     removeAssignee: hasGlobal("TICKET_ASSIGN") || (hasOwn("TICKET_ASSIGN") && isCreator),
     reassign:
       hasGlobal("TICKET_REASSIGN") ||
-      (hasOwn("TICKET_REASSIGN") && isCreator) ||
-      isCreator,
-    changePriority: hasGlobal("TICKET_CHANGE_PRIORITY"),
+      (hasOwn("TICKET_REASSIGN") && isCreator),
+    changePriority:
+      hasGlobal("TICKET_CHANGE_PRIORITY") ||
+      (hasAssigned("TICKET_CHANGE_PRIORITY") && isAssignee),
     changeStatus:
       hasGlobal("TICKET_CHANGE_STATUS") ||
-      (hasAssigned("TICKET_CHANGE_STATUS") && isAssignee) ||
-      (hasOwn("TICKET_CHANGE_STATUS") && isCreator) ||
-      isCreator,
+      (hasAssigned("TICKET_CHANGE_STATUS") && isAssignee),
     createSubticket:
       hasGlobal("TICKET_CREATE_SUBTICKET") ||
       (hasOwn("TICKET_CREATE_SUBTICKET") && isCreator) ||
@@ -103,6 +107,7 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
       hasGlobal("TICKET_ADD_REMARK") ||
       (hasOwn("TICKET_ADD_REMARK") && isCreator) ||
       (hasAssigned("TICKET_ADD_REMARK") && isAssignee),
+    manageTeams: hasGlobal("TICKET_TEAM_MANAGE"),
   };
 };
 

@@ -44,13 +44,37 @@ const requirePermission = (key, scopeResolverFn = null) => {
         }
       }
 
-      // ── Step 1: Check for GLOBAL scope across any key ───────────────────
+      // ── Step 1: Check if the user's role holds the required permission at all ─
+      if (allGrantedScopes.length === 0) {
+        // Log denial to AuditLog
+        await prisma.auditLog.create({
+          data: {
+            entityType: "PERMISSION",
+            entityId: 0,
+            action: "PERMISSION_DENIED",
+            previousValue: null,
+            newValue: JSON.stringify({
+              requiredPermission: keys.join(" | "),
+              reason: "Role does not hold permission",
+              attemptedPath: req.originalUrl,
+            }),
+            performedById: req.user.id,
+          },
+        });
+
+        return res.status(403).json({
+          status: "error",
+          message: "Forbidden: Insufficient permissions",
+        });
+      }
+
+      // ── Step 2: Check for GLOBAL scope across any key ───────────────────
       if (allGrantedScopes.includes("GLOBAL")) {
         req.isGlobalScope = true;
         return next();
       }
 
-      // ── Step 2: Check Scoped Permission or Scope Resolver ─────────────────
+      // ── Step 3: Check Scoped Permission or Scope Resolver ─────────────────
       req.isGlobalScope = false;
       const targetResource = req.resource || { ...req.params, ...req.body };
 
@@ -60,29 +84,6 @@ const requirePermission = (key, scopeResolverFn = null) => {
       }
 
       if (!isAllowed) {
-        const hasAnyPermission = allGrantedScopes.length > 0;
-        if (!hasAnyPermission) {
-          // Log denial to AuditLog
-          await prisma.auditLog.create({
-            data: {
-              entityType: "PERMISSION",
-              entityId: 0,
-              action: "PERMISSION_DENIED",
-              previousValue: null,
-              newValue: JSON.stringify({
-                requiredPermission: keys.join(" | "),
-                reason: "Role does not hold permission",
-                attemptedPath: req.originalUrl,
-              }),
-              performedById: req.user.id,
-            },
-          });
-
-          return res.status(403).json({
-            status: "error",
-            message: "Forbidden: Insufficient permissions",
-          });
-        }
 
         // Log scoped denial to AuditLog
         const resourceId =
