@@ -340,10 +340,30 @@ const agingReportQuerySchema = {
   }),
 };
 
+const exportQuerySchema = {
+  query: z.object({
+    teamId: z.coerce.number().int().positive().optional(),
+    statusId: z.coerce.number().int().positive().optional(),
+    priorityId: z.coerce.number().int().positive().optional(),
+    projectId: z.coerce.number().int().positive().optional(),
+    assigneeId: z.coerce.number().int().positive().optional(),
+    createdById: z.coerce.number().int().positive().optional(),
+    scope: z.enum(["all", "personal", "created", "assigned"]).optional(),
+    search: z.string().trim().optional(),
+    startDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "startDate must be a valid date string" }).optional(),
+    endDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "endDate must be a valid date string" }).optional(),
+    ticketType: z.enum(["all", "main", "sub"]).optional(),
+    isSubTicket: z.union([z.enum(["all", "true", "false"]), z.boolean()]).optional(),
+    format: z.enum(["json", "csv"]).optional().default("json"),
+    limit: z.coerce.number().int().min(1).max(5000).optional().default(5000),
+  }),
+};
+
 module.exports = {
   createTicketSchema,
   updateTicketSchema,
   ticketQuerySchema,
+  exportQuerySchema,
   agingReportQuerySchema,
   ticketIdParamSchema,
   addAssigneeSchema,

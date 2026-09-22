@@ -214,23 +214,23 @@ const retireDepartment = async (req, res, next) => {
 
     let data;
     if (permanent) {
-      try {
-        data = await prisma.department.delete({ where: { id } });
-      } catch (err) {
-        if (err.code === "P2003") {
-          // If permanent delete fails due to child teams/users, cascade archive child teams and department
-          await prisma.team.updateMany({
-            where: { departmentId: id },
-            data: { status: "INACTIVE" },
-          });
-          data = await prisma.department.update({
-            where: { id },
-            data: { status: "INACTIVE" },
-          });
-        } else {
-          throw err;
-        }
+      // Proactively check for dependent users and teams to prevent raw DB constraint violations
+      const [usersCount, teamsCount] = await Promise.all([
+        prisma.user.count({ where: { departmentId: id } }),
+        prisma.team.count({ where: { departmentId: id } }),
+      ]);
+
+      if (usersCount > 0 || teamsCount > 0) {
+        const reasons = [];
+        if (usersCount > 0) reasons.push(`${usersCount} user(s)`);
+        if (teamsCount > 0) reasons.push(`${teamsCount} team(s)`);
+        throw new AppError(
+          `Cannot permanently delete department because it has ${reasons.join(" and ")} associated with it. Please reassign or remove them first, or archive the department instead.`,
+          400
+        );
       }
+
+      data = await prisma.department.delete({ where: { id } });
     } else {
       // Archive all child teams under this department
       await prisma.team.updateMany({
@@ -252,8 +252,21 @@ const retireDepartment = async (req, res, next) => {
       data,
     });
   } catch (error) {
-    if (error.code === "P2003") {
-      return next(new AppError("Cannot permanently delete department because it has associated teams or personnel. Please archive it instead.", 400));
+    const isForeignKeyViolation =
+      error.code === "P2003" ||
+      error.code === "23001" ||
+      (typeof error.message === "string" &&
+        (error.message.includes("violates RESTRICT") ||
+          error.message.includes("foreign key constraint") ||
+          error.message.includes("Foreign key constraint failed")));
+
+    if (isForeignKeyViolation) {
+      return next(
+        new AppError(
+          "Cannot permanently delete department because it has associated teams or personnel. Please archive it instead.",
+          400
+        )
+      );
     }
     next(error);
   }

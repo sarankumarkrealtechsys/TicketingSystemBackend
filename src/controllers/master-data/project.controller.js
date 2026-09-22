@@ -178,6 +178,14 @@ const retireProject = async (req, res, next) => {
 
     let data;
     if (permanent) {
+      const ticketsCount = await prisma.ticket.count({ where: { projectId: id } });
+      if (ticketsCount > 0) {
+        throw new AppError(
+          `Cannot permanently delete project because it has ${ticketsCount} associated ticket(s). Please reassign or close them, or archive the project instead.`,
+          400
+        );
+      }
+
       data = await prisma.project.delete({ where: { id } });
     } else {
       data = await prisma.project.update({
@@ -193,8 +201,21 @@ const retireProject = async (req, res, next) => {
       data,
     });
   } catch (error) {
-    if (error.code === "P2003") {
-      return next(new AppError("Cannot permanently delete project because it has associated tickets. Please archive it instead.", 400));
+    const isForeignKeyViolation =
+      error.code === "P2003" ||
+      error.code === "23001" ||
+      (typeof error.message === "string" &&
+        (error.message.includes("violates RESTRICT") ||
+          error.message.includes("foreign key constraint") ||
+          error.message.includes("Foreign key constraint failed")));
+
+    if (isForeignKeyViolation) {
+      return next(
+        new AppError(
+          "Cannot permanently delete project because it has associated tickets. Please archive it instead.",
+          400
+        )
+      );
     }
     next(error);
   }

@@ -7,9 +7,10 @@ const timeEntryService = require("./time-entry.service");
 /**
  * Lists tickets with basic filters and pagination.
  * - Admin (GLOBAL): sees all tickets.
- * - User (TEAM): sees tickets belonging to teams they are active members in.
+/**
+ * Builds Prisma where filter object based on query params and user RBAC scope.
  */
-const listTickets = async ({ query, user, isGlobalScope = false }) => {
+const buildTicketWhereQuery = ({ query, user, isGlobalScope = false }) => {
   const where = {};
 
   if (query.scope === "created") {
@@ -122,6 +123,17 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
     });
   }
 
+  return where;
+};
+
+/**
+ * Lists tickets with basic filters and pagination.
+ * - Admin (GLOBAL): sees all tickets.
+ * - User (TEAM): sees tickets belonging to teams they are active members in.
+ */
+const listTickets = async ({ query, user, isGlobalScope = false }) => {
+  const where = buildTicketWhereQuery({ query, user, isGlobalScope });
+
   const page = Math.max(1, Number(query.page) || 1);
   const pageSize = Math.min(
     100,
@@ -179,6 +191,99 @@ const listTickets = async ({ query, user, isGlobalScope = false }) => {
     pageSize,
     totalPages: Math.ceil(total / pageSize),
   };
+};
+
+/**
+ * Exports all matching tickets for reports (bypasses 100-item page limit, up to 5000 records).
+ * Supports format=csv (streams RFC 4180 with BOM) and format=json.
+ */
+const exportTickets = async ({ query, user, isGlobalScope = false }) => {
+  const where = buildTicketWhereQuery({ query, user, isGlobalScope });
+  const maxLimit = Math.min(5000, Math.max(1, Number(query.limit) || 5000));
+
+  const rawTickets = await prisma.ticket.findMany({
+    where,
+    take: maxLimit,
+    orderBy: { createdAt: "desc" },
+    include: {
+      project: { select: { id: true, name: true } },
+      team: { select: { id: true, name: true, departmentId: true } },
+      priority: { select: { id: true, label: true, sortOrder: true } },
+      status: { select: { id: true, label: true, behavior: true } },
+      createdBy: { select: { id: true, name: true, email: true } },
+      parentTicket: { select: { id: true, ticketNumber: true, summary: true } },
+      assignees: {
+        where: { removedAt: null },
+        select: {
+          teamId: true,
+          user: { select: { id: true, name: true, email: true } },
+        },
+      },
+    },
+  });
+
+  const tickets = rawTickets.map((t) => ({
+    id: t.id,
+    ticketNumber: t.ticketNumber,
+    summary: t.summary,
+    description: t.description || "",
+    project: t.project?.name || "—",
+    team: t.team?.name || "—",
+    priority: t.priority?.label || "Normal",
+    status: t.status?.label || t.status?.behavior || "Open",
+    statusBehavior: t.status?.behavior || "OPEN",
+    createdBy: t.createdBy?.name || t.createdBy?.email || "—",
+    assignees:
+      (t.assignees || [])
+        .map((a) => a.user?.name || a.user?.email)
+        .filter(Boolean)
+        .join(", ") || "Unassigned",
+    isSubTicket: Boolean(t.parentTicketId),
+    parentTicketNumber: t.parentTicket?.ticketNumber || "",
+    createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : "",
+    updatedAt: t.updatedAt ? new Date(t.updatedAt).toISOString() : "",
+    closedAt: t.closedAt ? new Date(t.closedAt).toISOString() : "",
+  }));
+
+  if (query.format === "csv") {
+    const headers = [
+      "Ticket Number",
+      "Summary",
+      "Project",
+      "Team",
+      "Priority",
+      "Status",
+      "Assignees",
+      "Created By",
+      "Created At",
+      "Last Updated",
+    ];
+
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = tickets.map((t) => [
+      escapeCsv(t.ticketNumber),
+      escapeCsv(t.summary),
+      escapeCsv(t.project),
+      escapeCsv(t.team),
+      escapeCsv(t.priority),
+      escapeCsv(t.status),
+      escapeCsv(t.assignees),
+      escapeCsv(t.createdBy),
+      escapeCsv(t.createdAt ? new Date(t.createdAt).toLocaleString() : ""),
+      escapeCsv(t.updatedAt ? new Date(t.updatedAt).toLocaleString() : ""),
+    ]);
+
+    const csvContent =
+      "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+    return { format: "csv", csvContent, total: tickets.length };
+  }
+
+  return { format: "json", tickets, total: tickets.length };
 };
 
 /**
@@ -613,6 +718,7 @@ const getAgingReport = async ({ query = {}, user, isGlobalScope = false }) => {
 
 module.exports = {
   listTickets,
+  exportTickets,
   getTicketById,
   getTicketStats,
   getAgingReport,

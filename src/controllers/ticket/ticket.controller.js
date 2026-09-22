@@ -439,11 +439,40 @@ const deleteTicket = async (req, res, next) => {
   }
 };
 
+const exportTickets = async (req, res, next) => {
+  try {
+    const userPermissions = await getPermissions(req.user, req);
+    const isGlobalScope = userPermissions["TICKET_VIEW"]?.includes("GLOBAL");
+
+    const result = await ticketQueryService.exportTickets({
+      query: req.query,
+      user: req.user,
+      isGlobalScope,
+    });
+
+    if (result.format === "csv") {
+      const filename = `ticket_report_${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.status(200).send(result.csvContent);
+    }
+
+    return res.status(200).json({
+      status: "success",
+      total: result.total,
+      data: result.tickets,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createTicket,
   updateTicket,
   deleteTicket,
   listTickets,
+  exportTickets,
   getTicketById,
   getTicketStats,
   getAgingReport,

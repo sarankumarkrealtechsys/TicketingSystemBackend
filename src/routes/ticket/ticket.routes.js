@@ -13,6 +13,7 @@ const {
   updateTicketSchema,
   ticketQuerySchema,
   agingReportQuerySchema,
+  exportQuerySchema,
   ticketIdParamSchema,
   addAssigneeSchema,
   removeAssigneeSchema,
@@ -283,6 +284,15 @@ router.get(
   requirePermissionKey("TICKET_VIEW"),
   validate(agingReportQuerySchema),
   ticketController.getAgingReport,
+);
+
+// GET /api/tickets/export — Export tickets matching filters for reports (CSV or JSON)
+router.get(
+  "/export",
+  authenticate,
+  requirePermissionKey("TICKET_VIEW"),
+  validate(exportQuerySchema),
+  ticketController.exportTickets,
 );
 
 // GET /api/tickets/:id/history — View ticket audit history (Placed BEFORE generic /:id to prevent route shadowing)

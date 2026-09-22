@@ -269,7 +269,22 @@ const retireTeam = async (req, res, next) => {
 
     let data;
     if (permanent) {
-      await prisma.teamMember.deleteMany({ where: { teamId: id } });
+      const [ticketsCount, membersCount] = await Promise.all([
+        prisma.ticket.count({ where: { teamId: id } }),
+        prisma.userTeam.count({ where: { teamId: id, removedAt: null } }),
+      ]);
+
+      if (ticketsCount > 0 || membersCount > 0) {
+        const reasons = [];
+        if (ticketsCount > 0) reasons.push(`${ticketsCount} ticket(s)`);
+        if (membersCount > 0) reasons.push(`${membersCount} active member(s)`);
+        throw new AppError(
+          `Cannot permanently delete team because it has ${reasons.join(" and ")} associated with it. Please archive the team instead.`,
+          400
+        );
+      }
+
+      await prisma.userTeam.deleteMany({ where: { teamId: id } });
       data = await prisma.team.delete({ where: { id } });
     } else {
       data = await prisma.team.update({
@@ -285,8 +300,21 @@ const retireTeam = async (req, res, next) => {
       data,
     });
   } catch (error) {
-    if (error.code === "P2003") {
-      return next(new AppError("Cannot permanently delete team because it has associated tickets. Please archive it instead.", 400));
+    const isForeignKeyViolation =
+      error.code === "P2003" ||
+      error.code === "23001" ||
+      (typeof error.message === "string" &&
+        (error.message.includes("violates RESTRICT") ||
+          error.message.includes("foreign key constraint") ||
+          error.message.includes("Foreign key constraint failed")));
+
+    if (isForeignKeyViolation) {
+      return next(
+        new AppError(
+          "Cannot permanently delete team because it has associated tickets or personnel. Please archive it instead.",
+          400
+        )
+      );
     }
     next(error);
   }
