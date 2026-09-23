@@ -31,11 +31,11 @@ router.post(
   createProject,
 );
 
-// GET /api/projects — Gated on PROJECT_VIEW permission key
+// GET /api/projects — Gated on PROJECT_VIEW or DASHBOARD_VIEW permission key
 router.get(
   "/",
   authenticate,
-  requirePermissionKey("PROJECT_VIEW"),
+  requirePermissionKey(["PROJECT_VIEW", "DASHBOARD_VIEW"]),
   validate(projectQuerySchema),
   listProjects,
 );

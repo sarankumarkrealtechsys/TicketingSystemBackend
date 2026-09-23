@@ -9,8 +9,6 @@ const { prisma } = require("../../lib/prisma");
  */
 const PERMISSION_ALLOWED_SCOPES = {
   // ── Permissions supporting Scoped Access (from USER_PERMISSIONS) ──
-  USER_VIEW: ["GLOBAL", "OWN"],
-  USER_UPDATE: ["GLOBAL", "OWN"],
   DEPARTMENT_VIEW: ["GLOBAL", "OWN"],
   TEAM_VIEW: ["GLOBAL", "TEAM"],
   PROJECT_VIEW: ["GLOBAL", "TEAM"],
@@ -31,6 +29,8 @@ const PERMISSION_ALLOWED_SCOPES = {
   DASHBOARD_VIEW: ["GLOBAL", "OWN"],
 
   // ── Admin / Global-Only Permissions ──
+  USER_VIEW: ["GLOBAL"],
+  USER_UPDATE: ["GLOBAL"],
   USER_PERFORMANCE_VIEW: ["GLOBAL"],
   USER_CREATE: ["GLOBAL"],
   USER_DELETE: ["GLOBAL"],
@@ -39,6 +39,7 @@ const PERMISSION_ALLOWED_SCOPES = {
   DEPARTMENT_DELETE: ["GLOBAL"],
   TEAM_CREATE: ["GLOBAL"],
   TEAM_UPDATE: ["GLOBAL"],
+  TEAM_DEPARTMENT_CHANGE: ["GLOBAL"],
   TEAM_DELETE: ["GLOBAL"],
   PROJECT_CREATE: ["GLOBAL"],
   PROJECT_UPDATE: ["GLOBAL"],

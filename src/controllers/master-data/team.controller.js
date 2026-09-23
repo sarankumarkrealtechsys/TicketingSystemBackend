@@ -75,7 +75,9 @@ const createTeam = async (req, res, next) => {
 const listTeams = async (req, res, next) => {
   try {
     const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = userPermissions["TEAM_VIEW"]?.includes("GLOBAL");
+    const isGlobalScope = Boolean(
+      userPermissions["TEAM_VIEW"]?.includes("GLOBAL")
+    );
 
     const departmentId = req.query.departmentId ? Number(req.query.departmentId) : undefined;
     const includeInactive = req.query.includeInactive === "true" || req.query.includeInactive === true;
@@ -181,6 +183,27 @@ const updateTeam = async (req, res, next) => {
     const existing = await prisma.team.findUnique({ where: { id } });
     if (!existing) {
       throw new AppError("Team not found", 404);
+    }
+
+    const isDeptChange = departmentId !== undefined && departmentId !== existing.departmentId;
+    const isOtherFieldsUpdate = name !== undefined || description !== undefined || teamAdminEmail !== undefined || (status !== undefined && status !== existing.status);
+
+    if (isDeptChange || isOtherFieldsUpdate) {
+      const userPermissions = await getPermissions(req.user, req);
+
+      if (isDeptChange) {
+        const canChangeDept = userPermissions["TEAM_DEPARTMENT_CHANGE"]?.includes("GLOBAL") || userPermissions["TEAM_UPDATE"]?.includes("GLOBAL");
+        if (!canChangeDept) {
+          throw new AppError("You do not have permission to change a team's department", 403);
+        }
+      }
+
+      if (isOtherFieldsUpdate) {
+        const canUpdate = userPermissions["TEAM_UPDATE"]?.includes("GLOBAL");
+        if (!canUpdate) {
+          throw new AppError("You do not have permission to update team details", 403);
+        }
+      }
     }
 
     if (departmentId && departmentId !== existing.departmentId) {

@@ -337,7 +337,11 @@ const updateRolePermissions = async (req, res, next) => {
       }
     });
 
-    await invalidateCachePattern("roles:*");
+    await Promise.all([
+      invalidateCachePattern("roles:*"),
+      invalidateCachePattern("ticket-stats:*"),
+      invalidateCachePattern("masterdata:*"),
+    ]);
 
     return res.status(200).json({
       status: "success",

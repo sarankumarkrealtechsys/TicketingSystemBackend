@@ -32,7 +32,7 @@ router.post(
 router.get(
   "/",
   authenticate,
-  requirePermission("USER_VIEW"),
+  requirePermission(["USER_VIEW", "DASHBOARD_VIEW"]),
   validate(listUsersQuerySchema),
   userAccountController.listUsers,
 );

@@ -36,7 +36,10 @@ const createTicket = async (req, res, next) => {
 const listTickets = async (req, res, next) => {
   try {
     const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = userPermissions["TICKET_VIEW"]?.includes("GLOBAL");
+    const isGlobalScope = Boolean(
+      userPermissions["TICKET_VIEW"]?.includes("GLOBAL") ||
+      userPermissions["DASHBOARD_VIEW"]?.includes("GLOBAL")
+    );
 
     const data = await ticketQueryService.listTickets({
       query: req.query,
@@ -55,7 +58,10 @@ const listTickets = async (req, res, next) => {
 const getTicketById = async (req, res, next) => {
   try {
     const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = userPermissions["TICKET_VIEW"]?.includes("GLOBAL");
+    const isGlobalScope = Boolean(
+      userPermissions["TICKET_VIEW"]?.includes("GLOBAL") ||
+      userPermissions["DASHBOARD_VIEW"]?.includes("GLOBAL")
+    );
 
     const data = await ticketQueryService.getTicketById(
       Number(req.params.id),
@@ -80,14 +86,17 @@ const getTicketStats = async (req, res, next) => {
     res.setHeader("Expires", "0");
 
     const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = Boolean(userPermissions["TICKET_VIEW"]?.includes("GLOBAL"));
+    const isGlobalScope = Boolean(
+      userPermissions["TICKET_VIEW"]?.includes("GLOBAL") ||
+      userPermissions["DASHBOARD_VIEW"]?.includes("GLOBAL")
+    );
     // Non-global callers are strictly restricted to personal scope
     const scope = !isGlobalScope ? "personal" : (req.query.scope || "global");
 
     // Strictly scope cache key by user role, user ID, and scope so responses are never shared
     const cacheKey = `ticket-stats:${req.user.userRole?.name || "USER"}:${req.user.id}:${scope}`;
 
-    const data = await getOrSetCache(cacheKey, 60, () =>
+    const data = await getOrSetCache(cacheKey, 10, () =>
       ticketQueryService.getTicketStats(
         req.user,
         isGlobalScope && scope !== "personal",
@@ -397,7 +406,12 @@ const updateTicket = async (req, res, next) => {
 
 const getAgingReport = async (req, res, next) => {
   try {
-    const isGlobalScope = req.permissionScope === "GLOBAL";
+    const userPermissions = await getPermissions(req.user, req);
+    const isGlobalScope = Boolean(
+      req.permissionScope === "GLOBAL" ||
+      userPermissions["TICKET_VIEW"]?.includes("GLOBAL") ||
+      userPermissions["DASHBOARD_VIEW"]?.includes("GLOBAL")
+    );
     const data = await ticketQueryService.getAgingReport({
       query: req.query,
       user: req.user,
@@ -442,7 +456,10 @@ const deleteTicket = async (req, res, next) => {
 const exportTickets = async (req, res, next) => {
   try {
     const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = userPermissions["TICKET_VIEW"]?.includes("GLOBAL");
+    const isGlobalScope = Boolean(
+      userPermissions["TICKET_VIEW"]?.includes("GLOBAL") ||
+      userPermissions["DASHBOARD_VIEW"]?.includes("GLOBAL")
+    );
 
     const result = await ticketQueryService.exportTickets({
       query: req.query,

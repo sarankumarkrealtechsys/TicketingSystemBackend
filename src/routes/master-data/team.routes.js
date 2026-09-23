@@ -82,7 +82,7 @@ router.post(
 router.get(
   "/",
   authenticate,
-  requirePermissionKey("TEAM_VIEW"),
+  requirePermissionKey(["TEAM_VIEW", "DASHBOARD_VIEW"]),
   validate(teamQuerySchema),
   listTeams,
 );
@@ -101,7 +101,7 @@ router.get(
 router.patch(
   "/:id",
   authenticate,
-  requirePermission("TEAM_UPDATE", resolveGlobal),
+  requirePermissionKey(["TEAM_UPDATE", "TEAM_DEPARTMENT_CHANGE"]),
   validate(updateTeamSchema),
   updateTeam,
 );

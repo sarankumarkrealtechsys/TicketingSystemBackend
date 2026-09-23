@@ -121,6 +121,7 @@ const requirePermission = (key, scopeResolverFn = null) => {
 };
 
 const requirePermissionKey = (key) => {
+  const keys = Array.isArray(key) ? key : [key];
   return async (req, res, next) => {
     try {
       if (!req.user || !req.user.id) {
@@ -131,9 +132,11 @@ const requirePermissionKey = (key) => {
       }
 
       const userPermissions = await getPermissions(req.user, req);
-      const grantedScopes = userPermissions[key];
+      const hasAny = keys.some(
+        (k) => userPermissions[k] && userPermissions[k].length > 0,
+      );
 
-      if (!grantedScopes || grantedScopes.length === 0) {
+      if (!hasAny) {
         await prisma.auditLog.create({
           data: {
             entityType: "PERMISSION",
@@ -141,7 +144,7 @@ const requirePermissionKey = (key) => {
             action: "PERMISSION_DENIED",
             previousValue: null,
             newValue: JSON.stringify({
-              requiredPermission: key,
+              requiredPermission: keys.join(" | "),
               reason: "Role does not hold permission",
               attemptedPath: req.originalUrl,
             }),

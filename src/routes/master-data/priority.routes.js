@@ -19,11 +19,11 @@ const {
 
 const router = Router();
 
-// POST /api/priority-levels — Admin only (PRIORITY_MANAGE at GLOBAL scope)
+// POST /api/priority-levels — PRIORITY_CREATE at GLOBAL scope
 router.post(
   "/",
   authenticate,
-  requirePermission("PRIORITY_MANAGE", resolveGlobal),
+  requirePermission("PRIORITY_CREATE", resolveGlobal),
   validate(createPrioritySchema),
   createPriority,
 );
@@ -44,20 +44,20 @@ router.get(
   getPriorityById,
 );
 
-// PATCH /api/priority-levels/:id — Admin only (PRIORITY_MANAGE at GLOBAL scope)
+// PATCH /api/priority-levels/:id — PRIORITY_UPDATE at GLOBAL scope
 router.patch(
   "/:id",
   authenticate,
-  requirePermission("PRIORITY_MANAGE", resolveGlobal),
+  requirePermission("PRIORITY_UPDATE", resolveGlobal),
   validate(updatePrioritySchema),
   updatePriority,
 );
 
-// DELETE /api/priority-levels/:id — Soft-delete (retire), Admin only (GLOBAL scope)
+// DELETE /api/priority-levels/:id — Soft-delete (retire), PRIORITY_RETIRE at GLOBAL scope
 router.delete(
   "/:id",
   authenticate,
-  requirePermission("PRIORITY_MANAGE", resolveGlobal),
+  requirePermission("PRIORITY_RETIRE", resolveGlobal),
   validate(priorityIdParamSchema),
   retirePriority,
 );

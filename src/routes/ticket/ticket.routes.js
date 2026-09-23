@@ -264,7 +264,7 @@ router.post(
 router.get(
   "/",
   authenticate,
-  requirePermissionKey("TICKET_VIEW"),
+  requirePermissionKey(["TICKET_VIEW", "DASHBOARD_VIEW"]),
   validate(ticketQuerySchema),
   ticketController.listTickets,
 );
@@ -273,7 +273,7 @@ router.get(
 router.get(
   "/stats",
   authenticate,
-  requirePermissionKey("TICKET_VIEW"),
+  requirePermissionKey(["TICKET_VIEW", "DASHBOARD_VIEW"]),
   ticketController.getTicketStats,
 );
 
@@ -281,7 +281,7 @@ router.get(
 router.get(
   "/aging-report",
   authenticate,
-  requirePermissionKey("TICKET_VIEW"),
+  requirePermissionKey(["TICKET_VIEW", "DASHBOARD_VIEW"]),
   validate(agingReportQuerySchema),
   ticketController.getAgingReport,
 );
@@ -290,7 +290,7 @@ router.get(
 router.get(
   "/export",
   authenticate,
-  requirePermissionKey("TICKET_VIEW"),
+  requirePermissionKey(["TICKET_VIEW", "DASHBOARD_VIEW"]),
   validate(exportQuerySchema),
   ticketController.exportTickets,
 );
@@ -349,7 +349,7 @@ router.get(
   "/:id",
   authenticate,
   validate(ticketIdParamSchema),
-  requirePermission("TICKET_VIEW", resolveTicketView),
+  requirePermission(["TICKET_VIEW", "DASHBOARD_VIEW"], resolveTicketView),
   ticketController.getTicketById,
 );
 

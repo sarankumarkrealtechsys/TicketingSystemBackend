@@ -46,6 +46,7 @@ const PERMISSIONS = [
   // Team management
   { key: 'TEAM_CREATE',              description: 'Create new teams within a department',                        category: 'Team' },
   { key: 'TEAM_UPDATE',              description: 'Update team details',                                         category: 'Team' },
+  { key: 'TEAM_DEPARTMENT_CHANGE',   description: 'Reassign teams to a different department',                    category: 'Team' },
   { key: 'TEAM_DELETE',              description: 'Deactivate or delete teams',                                  category: 'Team' },
   { key: 'TEAM_VIEW',                description: 'View team information and members',                           category: 'Team' },
 
@@ -55,13 +56,14 @@ const PERMISSIONS = [
   { key: 'PROJECT_DELETE',           description: 'Deactivate or delete projects',                               category: 'Project' },
   { key: 'PROJECT_VIEW',             description: 'View project information',                                    category: 'Project' },
 
-  // Priority management
-  { key: 'PRIORITY_MANAGE',          description: 'Create, update, reorder, and retire priority levels',         category: 'Priority' },
-
-  // Status management
-  { key: 'STATUS_CREATE',            description: 'Create new ticket statuses (global or team-specific)',        category: 'Status' },
-  { key: 'STATUS_UPDATE',            description: 'Rename or reorder existing ticket statuses',                  category: 'Status' },
-  { key: 'STATUS_RETIRE',            description: 'Retire (soft-delete) ticket statuses',                        category: 'Status' },
+  // Priority & Status management
+  { key: 'PRIORITY_CREATE',          description: 'Create new priority levels',                                  category: 'Priority & Status' },
+  { key: 'PRIORITY_UPDATE',          description: 'Rename, recolor, or reorder existing priority levels',         category: 'Priority & Status' },
+  { key: 'PRIORITY_RETIRE',          description: 'Retire (soft-delete) priority levels',                        category: 'Priority & Status' },
+  { key: 'PRIORITY_MANAGE',          description: 'Create, update, reorder, and retire priority levels',         category: 'Priority & Status' },
+  { key: 'STATUS_CREATE',            description: 'Create new ticket statuses (global or team-specific)',        category: 'Priority & Status' },
+  { key: 'STATUS_UPDATE',            description: 'Rename or reorder existing ticket statuses',                  category: 'Priority & Status' },
+  { key: 'STATUS_RETIRE',            description: 'Retire (soft-delete) ticket statuses',                        category: 'Priority & Status' },
 
   // Field & membership management
   { key: 'TICKET_FIELD_MANAGE',      description: 'Create, update, and retire custom ticket field definitions',  category: 'Ticket Field' },
