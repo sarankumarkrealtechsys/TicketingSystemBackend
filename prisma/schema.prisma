@@ -96,6 +96,10 @@ enum PermissionScope {
   DEPARTMENT
 }
 
+enum NotificationType {
+  TICKET_ASSIGNED
+}
+
 // ======================== DEPARTMENT ========================
 
 model Department {
@@ -157,6 +161,8 @@ model User {
   performedAuditLogs      AuditLog[]              @relation("AuditLogPerformedBy")
   createdRoles            Role[]                  @relation("RoleCreatedBy")
   grantedRolePermissions  RolePermission[]        @relation("RolePermissionGrantedBy")
+  notifications           Notification[]          @relation("UserNotifications")
+  triggeredNotifications  Notification[]          @relation("TriggeredNotifications")
 
   @@index([departmentId, status, legacyRole], name: "idx_user_department_status_role")
   @@index([roleId])
@@ -411,6 +417,7 @@ model Ticket {
   attachments        TicketAttachment[]
   customFieldValues  TicketFieldValue[] @relation("TicketCustomFieldValues")
   collaboratingTeams TicketTeam[]       @relation("TicketTeams")
+  notifications      Notification[]     @relation("TicketNotifications")
 
   @@index([teamId, statusId, priorityId], name: "idx_ticket_team_status_priority")
   @@index([projectId, teamId, statusId], name: "idx_ticket_project_team_status")
@@ -676,6 +683,48 @@ model TicketFieldValue {
   @@index([fieldDefinitionId], name: "idx_field_value_def")
   @@index([ticketId], name: "idx_field_value_ticket")
   @@map("ticket_field_values")
+}
+
+// ======================== NOTIFICATION ========================
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+
+  userId    Int
+  user      User             @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  actorId   Int?
+  actor     User?            @relation("TriggeredNotifications", fields: [actorId], references: [id], onDelete: SetNull)
+
+  ticketId  Int?
+  ticket    Ticket?          @relation("TicketNotifications", fields: [ticketId], references: [id], onDelete: Cascade)
+
+  type      NotificationType @default(TICKET_ASSIGNED)
+  title     String           @db.VarChar(255)
+  message   String           @db.Text
+
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead, createdAt], name: "idx_notifications_user_unread")
+  @@index([ticketId], name: "idx_notifications_ticket")
+  @@map("notifications")
+}
+
+// ======================== SYSTEM SETTING ========================
+
+model SystemSetting {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @db.VarChar(100)
+  value       String   @db.Text
+  description String?  @db.Text
+  updatedById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@map("system_settings")
 }
 
 // ======================== RAW SQL MIGRATION CHECKLIST ========================
