@@ -24,7 +24,10 @@ const createTicketStatus = async (req, res, next) => {
       isGlobalScope,
     );
 
-    await invalidateCachePattern("masterdata:ticket-statuses:*");
+    await Promise.all([
+      invalidateCachePattern("masterdata:ticket-statuses:*"),
+      invalidateCachePattern("ticket-stats:*"),
+    ]);
 
     return res.status(201).json({
       status: "success",
@@ -37,7 +40,7 @@ const createTicketStatus = async (req, res, next) => {
 
 const listTicketStatuses = async (req, res, next) => {
   try {
-    const { teamId, includeInactive, all } = req.query;
+    const { teamId, includeInactive, all, scope } = req.query;
     const shouldIncludeInactive = includeInactive === "true" || includeInactive === true;
     const isAll = all === "true" || teamId === "all";
 
@@ -49,6 +52,10 @@ const listTicketStatuses = async (req, res, next) => {
 
     if (isAll) {
       // No team scoping filter
+    } else if (scope === "global" || teamId === "global") {
+      where.teamId = null;
+    } else if (scope === "team-only" && teamId) {
+      where.teamId = Number(teamId);
     } else if (teamId !== undefined && teamId !== null && teamId !== "") {
       where.OR = [{ teamId: null }, { teamId: Number(teamId) }];
     } else {
@@ -104,7 +111,10 @@ const updateTicketStatus = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const updated = await statusService.updateStatus(id, req.body, req.user);
-    await invalidateCachePattern("masterdata:ticket-statuses:*");
+    await Promise.all([
+      invalidateCachePattern("masterdata:ticket-statuses:*"),
+      invalidateCachePattern("ticket-stats:*"),
+    ]);
 
     return res.status(200).json({
       status: "success",
@@ -119,10 +129,32 @@ const retireTicketStatus = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = await statusService.retireStatus(id, req.user);
-    await invalidateCachePattern("masterdata:ticket-statuses:*");
+    await Promise.all([
+      invalidateCachePattern("masterdata:ticket-statuses:*"),
+      invalidateCachePattern("ticket-stats:*"),
+    ]);
 
     return res.status(200).json({
       status: "success",
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteTicketStatusPermanently = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const data = await statusService.deleteStatusPermanently(id, req.user);
+    await Promise.all([
+      invalidateCachePattern("masterdata:ticket-statuses:*"),
+      invalidateCachePattern("ticket-stats:*"),
+    ]);
+
+    return res.status(200).json({
+      status: "success",
+      message: `Workflow status "${data.label}" permanently deleted`,
       data,
     });
   } catch (error) {
@@ -136,4 +168,5 @@ module.exports = {
   getTicketStatusById,
   updateTicketStatus,
   retireTicketStatus,
+  deleteTicketStatusPermanently,
 };

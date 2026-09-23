@@ -15,6 +15,7 @@ const {
   getTicketStatusById,
   updateTicketStatus,
   retireTicketStatus,
+  deleteTicketStatusPermanently,
 } = require("../../controllers/master-data/status.controller");
 
 const router = Router();
@@ -237,6 +238,15 @@ router.patch(
   validate(updateTicketStatusSchema),
   authorizeStatusUpdate,
   updateTicketStatus,
+);
+
+// DELETE /api/ticket-statuses/:id/permanent — Global (Admin STATUS_RETIRE) or Team-specific (Active team member)
+router.delete(
+  "/:id/permanent",
+  authenticate,
+  validate(ticketStatusIdParamSchema),
+  authorizeStatusRetire,
+  deleteTicketStatusPermanently,
 );
 
 // DELETE /api/ticket-statuses/:id — Global (Admin STATUS_RETIRE) or Team-specific (Active team member)

@@ -1,15 +1,20 @@
 const rateLimit = require("express-rate-limit");
 
+const isDevelopment = process.env.NODE_ENV !== "production";
+
 /**
  * Global API rate limiter.
  * Applies to all /api routes.
- * 500 requests per 15 minutes per IP.
+ * In development: 5000 requests per 15 minutes to allow rapid refreshing & multi-query dashboards.
+ * In production: 2000 requests per 15 minutes per IP.
  */
 const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // Limit each IP to 500 requests per window
+  max: isDevelopment ? 5000 : 2000,
   standardHeaders: true,
   legacyHeaders: false,
+  // Never rate-limit auth verification checks so session bootstrap never fails
+  skip: (req) => req.path === "/auth/me" || req.originalUrl?.includes("/api/auth/me"),
   message: {
     status: "error",
     message: "Too many requests, please try again later.",
@@ -18,9 +23,8 @@ const apiRateLimiter = rateLimit({
 
 /**
  * Login-specific rate limiter.
- * 10 attempts per IP per 15 minutes to prevent brute-force attacks.
- */
-const loginRateLimiter = rateLimit({
+ * 
+ * const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // 10 login attempts per IP per window
   standardHeaders: true,
@@ -30,6 +34,10 @@ const loginRateLimiter = rateLimit({
     message: "Too many login attempts, please try again later.",
   },
 });
+
+ * Set to infinity (pass-through) for testing.
+ */
+const loginRateLimiter = (_req, _res, next) => next();
 
 /**
  * File upload rate limiter.

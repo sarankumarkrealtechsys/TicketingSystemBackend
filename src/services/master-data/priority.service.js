@@ -87,7 +87,57 @@ const retirePriority = async (id, user) => {
   });
 };
 
+/**
+ * Permanently deletes an archived priority level.
+ * Requires the priority to be INACTIVE and assigned to 0 tickets.
+ * Records AuditLog (DELETED) inside the transaction.
+ */
+const deletePriorityPermanently = async (id, user) => {
+  const existing = await prisma.priorityLevel.findUnique({ where: { id } });
+  if (!existing) {
+    throw new AppError("Priority level not found", 404);
+  }
+
+  if (existing.status !== "INACTIVE") {
+    throw new AppError(
+      `Only archived priority levels can be permanently deleted. Please archive "${existing.label}" first.`,
+      400
+    );
+  }
+
+  const ticketCount = await prisma.ticket.count({ where: { priorityId: id } });
+  if (ticketCount > 0) {
+    throw new AppError(
+      `Cannot delete priority "${existing.label}" because ${ticketCount} ticket(s) are currently assigned to it. Reassign those tickets before deleting, or keep it archived.`,
+      400
+    );
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    const deleted = await tx.priorityLevel.delete({
+      where: { id },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        entityType: "PriorityLevel",
+        entityId: id,
+        action: "DELETED",
+        previousValue: JSON.stringify({
+          label: existing.label,
+          sortOrder: existing.sortOrder,
+          status: existing.status,
+        }),
+        performedById: user.id,
+      },
+    });
+
+    return deleted;
+  });
+};
+
 module.exports = {
   updatePriority,
   retirePriority,
+  deletePriorityPermanently,
 };

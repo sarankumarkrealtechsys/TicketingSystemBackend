@@ -76,7 +76,9 @@ const ticketStatusIdParamSchema = {
 
 const ticketStatusQuerySchema = {
   query: z.object({
-    teamId: z.coerce.number().int().positive().optional(),
+    teamId: z.union([z.coerce.number().int().positive(), z.string()]).optional(),
+    all: z.preprocess((val) => val === "true" || val === true, z.boolean()).optional(),
+    scope: z.string().optional(),
     includeInactive: z
       .preprocess((val) => val === "true" || val === true, z.boolean())
       .optional(),

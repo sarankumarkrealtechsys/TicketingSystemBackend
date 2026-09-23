@@ -30,7 +30,10 @@ const createPriority = async (req, res, next) => {
         },
       });
 
-      await invalidateCachePattern("masterdata:priority-levels:*");
+      await Promise.all([
+        invalidateCachePattern("masterdata:priority-levels:*"),
+        invalidateCachePattern("ticket-stats:*"),
+      ]);
 
       return res.status(201).json({
         status: "success",
@@ -98,7 +101,10 @@ const updatePriority = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = await priorityService.updatePriority(id, req.body, req.user);
-    await invalidateCachePattern("masterdata:priority-levels:*");
+    await Promise.all([
+      invalidateCachePattern("masterdata:priority-levels:*"),
+      invalidateCachePattern("ticket-stats:*"),
+    ]);
 
     return res.status(200).json({
       status: "success",
@@ -113,10 +119,32 @@ const retirePriority = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = await priorityService.retirePriority(id, req.user);
-    await invalidateCachePattern("masterdata:priority-levels:*");
+    await Promise.all([
+      invalidateCachePattern("masterdata:priority-levels:*"),
+      invalidateCachePattern("ticket-stats:*"),
+    ]);
 
     return res.status(200).json({
       status: "success",
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deletePriorityPermanently = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const data = await priorityService.deletePriorityPermanently(id, req.user);
+    await Promise.all([
+      invalidateCachePattern("masterdata:priority-levels:*"),
+      invalidateCachePattern("ticket-stats:*"),
+    ]);
+
+    return res.status(200).json({
+      status: "success",
+      message: `Priority level "${data.label}" permanently deleted`,
       data,
     });
   } catch (error) {
@@ -130,4 +158,5 @@ module.exports = {
   getPriorityById,
   updatePriority,
   retirePriority,
+  deletePriorityPermanently,
 };

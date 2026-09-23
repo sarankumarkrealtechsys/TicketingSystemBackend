@@ -15,6 +15,7 @@ const {
   getPriorityById,
   updatePriority,
   retirePriority,
+  deletePriorityPermanently,
 } = require("../../controllers/master-data/priority.controller");
 
 const router = Router();
@@ -51,6 +52,15 @@ router.patch(
   requirePermission("PRIORITY_UPDATE", resolveGlobal),
   validate(updatePrioritySchema),
   updatePriority,
+);
+
+// DELETE /api/priority-levels/:id/permanent — Hard-delete archived priority, PRIORITY_RETIRE at GLOBAL scope
+router.delete(
+  "/:id/permanent",
+  authenticate,
+  requirePermission("PRIORITY_RETIRE", resolveGlobal),
+  validate(priorityIdParamSchema),
+  deletePriorityPermanently,
 );
 
 // DELETE /api/priority-levels/:id — Soft-delete (retire), PRIORITY_RETIRE at GLOBAL scope

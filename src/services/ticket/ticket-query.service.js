@@ -508,7 +508,9 @@ const getTicketById = async (id, user, isGlobalScope = false, userPermissions = 
 const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
   const where = {};
 
-  if (scope === "personal" || !isGlobalScope) {
+  const isPersonalOrScoped = scope === "personal" || !isGlobalScope;
+
+  if (isPersonalOrScoped) {
     where.OR = [
       { createdById: user.id },
       {
@@ -522,15 +524,50 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
     ];
   }
 
-  const tickets = await prisma.ticket.findMany({
-    where,
-    select: {
-      id: true,
-      status: { select: { behavior: true } },
-      priorityId: true,
-      priority: { select: { id: true, label: true } },
-    },
-  });
+  // Determine allowed status scope:
+  // - Global scope (Admin Dashboard): only pre-seed Global statuses (teamId: null).
+  // - Personal scope (User Dashboard / My Tickets): Global statuses + user's active team statuses.
+  let statusWhere = { status: "ACTIVE" };
+  if (isPersonalOrScoped) {
+    const userTeams = await prisma.userTeam.findMany({
+      where: { userId: user.id, removedAt: null },
+      select: { teamId: true },
+    });
+    const userTeamIds = userTeams.map((ut) => ut.teamId);
+    statusWhere = {
+      status: "ACTIVE",
+      OR: [{ teamId: null }, { teamId: { in: userTeamIds } }],
+    };
+  } else {
+    statusWhere = {
+      status: "ACTIVE",
+      teamId: null,
+    };
+  }
+
+  // Fetch active master data and tickets in parallel
+  const [allPriorities, allStatuses, tickets] = await Promise.all([
+    prisma.priorityLevel.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, label: true, sortOrder: true },
+    }),
+    prisma.ticketStatus.findMany({
+      where: statusWhere,
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, label: true, behavior: true, sortOrder: true },
+    }),
+    prisma.ticket.findMany({
+      where,
+      select: {
+        id: true,
+        statusId: true,
+        status: { select: { id: true, label: true, behavior: true, sortOrder: true } },
+        priorityId: true,
+        priority: { select: { id: true, label: true, sortOrder: true } },
+      },
+    }),
+  ]);
 
   const byStatusBehavior = {
     OPEN: 0,
@@ -540,7 +577,28 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
     CLOSED: 0,
   };
 
-  const priorityMap = {};
+  // Pre-seed priorityMap with all active priorities
+  const priorityMap = new Map();
+  for (const p of allPriorities) {
+    priorityMap.set(p.id, {
+      priorityId: p.id,
+      label: p.label,
+      sortOrder: p.sortOrder ?? 0,
+      count: 0,
+    });
+  }
+
+  // Pre-seed statusMap with all active statuses
+  const statusMap = new Map();
+  for (const s of allStatuses) {
+    statusMap.set(s.id, {
+      statusId: s.id,
+      label: s.label,
+      behavior: s.behavior,
+      sortOrder: s.sortOrder ?? 0,
+      count: 0,
+    });
+  }
 
   for (const t of tickets) {
     const beh = t.status?.behavior;
@@ -549,21 +607,44 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
     }
 
     if (t.priorityId) {
-      if (!priorityMap[t.priorityId]) {
-        priorityMap[t.priorityId] = {
+      if (!priorityMap.has(t.priorityId)) {
+        priorityMap.set(t.priorityId, {
           priorityId: t.priorityId,
-          label: t.priority?.label || "",
+          label: t.priority?.label || `Priority #${t.priorityId}`,
+          sortOrder: t.priority?.sortOrder ?? 999,
           count: 0,
-        };
+        });
       }
-      priorityMap[t.priorityId].count++;
+      priorityMap.get(t.priorityId).count++;
+    }
+
+    if (t.statusId) {
+      if (!statusMap.has(t.statusId)) {
+        statusMap.set(t.statusId, {
+          statusId: t.statusId,
+          label: t.status?.label || `Status #${t.statusId}`,
+          behavior: t.status?.behavior || "OPEN",
+          sortOrder: t.status?.sortOrder ?? 999,
+          count: 0,
+        });
+      }
+      statusMap.get(t.statusId).count++;
     }
   }
+
+  const byPriority = Array.from(priorityMap.values()).sort(
+    (a, b) => a.sortOrder - b.sortOrder
+  );
+
+  const byStatus = Array.from(statusMap.values()).sort(
+    (a, b) => a.sortOrder - b.sortOrder
+  );
 
   return {
     total: tickets.length,
     byStatusBehavior,
-    byPriority: Object.values(priorityMap),
+    byPriority,
+    byStatus,
   };
 };
 

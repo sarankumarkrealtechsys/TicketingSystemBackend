@@ -225,8 +225,63 @@ const retireStatus = async (id, user) => {
   });
 };
 
+/**
+ * Permanently deletes an archived ticket status.
+ * Requires the status to be non-default, INACTIVE, and assigned to 0 tickets.
+ * Records AuditLog (DELETED) inside the transaction.
+ */
+const deleteStatusPermanently = async (id, user) => {
+  const existing = await prisma.ticketStatus.findUnique({ where: { id } });
+  if (!existing) {
+    throw new AppError("Ticket status not found", 404);
+  }
+
+  if (existing.isDefault) {
+    throw new AppError("System default statuses cannot be deleted", 400);
+  }
+
+  if (existing.status !== "INACTIVE") {
+    throw new AppError(
+      `Only archived workflow statuses can be permanently deleted. Please archive "${existing.label}" first.`,
+      400
+    );
+  }
+
+  const ticketCount = await prisma.ticket.count({ where: { statusId: id } });
+  if (ticketCount > 0) {
+    throw new AppError(
+      `Cannot delete status "${existing.label}" because ${ticketCount} ticket(s) are currently in this status. Reassign those tickets before deleting, or keep it archived.`,
+      400
+    );
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    const deleted = await tx.ticketStatus.delete({
+      where: { id },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        entityType: "TicketStatus",
+        entityId: id,
+        action: "DELETED",
+        previousValue: JSON.stringify({
+          label: existing.label,
+          behavior: existing.behavior,
+          teamId: existing.teamId,
+          status: existing.status,
+        }),
+        performedById: user.id,
+      },
+    });
+
+    return deleted;
+  });
+};
+
 module.exports = {
   createStatus,
   updateStatus,
   retireStatus,
+  deleteStatusPermanently,
 };

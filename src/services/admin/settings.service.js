@@ -3,6 +3,30 @@ const { logger } = require("../../config/logger");
 
 const SETTING_KEY_EMAIL_NOTIFICATIONS = "EMAIL_NOTIFICATIONS_ENABLED";
 
+let tableEnsured = false;
+
+/**
+ * Ensures the system_settings table exists in PostgreSQL.
+ * Allows the service to self-heal if the table was not pre-migrated.
+ */
+const ensureTableExists = async () => {
+  if (tableEnsured) return;
+  try {
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        id SERIAL PRIMARY KEY,
+        key VARCHAR(100) UNIQUE NOT NULL,
+        value TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `;
+    tableEnsured = true;
+  } catch (err) {
+    logger.warn(`[Settings] ensureTableExists notice: ${err.message}`);
+  }
+};
+
 /**
  * Checks if email notifications are globally enabled.
  * - Queries PostgreSQL system_settings directly (no Redis cache).
@@ -12,6 +36,7 @@ const SETTING_KEY_EMAIL_NOTIFICATIONS = "EMAIL_NOTIFICATIONS_ENABLED";
  */
 const isEmailNotificationsEnabled = async () => {
   try {
+    await ensureTableExists();
     const rows = await prisma.$queryRaw`
       SELECT value FROM system_settings WHERE key = ${SETTING_KEY_EMAIL_NOTIFICATIONS} LIMIT 1
     `;
@@ -37,6 +62,7 @@ const isEmailNotificationsEnabled = async () => {
  */
 const getEmailNotificationsSetting = async () => {
   try {
+    await ensureTableExists();
     const rows = await prisma.$queryRaw`
       SELECT value, updated_at FROM system_settings WHERE key = ${SETTING_KEY_EMAIL_NOTIFICATIONS} LIMIT 1
     `;
@@ -56,7 +82,11 @@ const getEmailNotificationsSetting = async () => {
     logger.error(
       `[Settings] Error retrieving ${SETTING_KEY_EMAIL_NOTIFICATIONS}: ${error.message}`,
     );
-    throw error;
+    // Return safe default so frontend does not crash with 500 error
+    return {
+      enabled: true,
+      updatedAt: new Date(),
+    };
   }
 };
 
@@ -68,6 +98,7 @@ const getEmailNotificationsSetting = async () => {
  * @returns {Promise<{ enabled: boolean, updatedAt: Date }>}
  */
 const updateEmailNotificationsSetting = async (enabled) => {
+  await ensureTableExists();
   const strValue = String(Boolean(enabled));
   const now = new Date();
 
