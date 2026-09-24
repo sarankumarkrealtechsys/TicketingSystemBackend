@@ -47,7 +47,7 @@ router.get(
   authenticate,
   validate(teamIdParamSchema),
   setTeamResource,
-  requirePermission("TEAM_VIEW", resolveTeam),
+  requirePermissionKey(["TEAM_VIEW", "DASHBOARD_VIEW", "TICKET_CREATE"]),
   getTeamAssignees,
 );
 
@@ -78,22 +78,22 @@ router.post(
   createTeam,
 );
 
-// GET /api/teams — List teams (GLOBAL sees all; TEAM-scoped sees own active teams)
+// GET /api/teams — List teams (supports myTeamsOnly query filter)
 router.get(
   "/",
   authenticate,
-  requirePermissionKey(["TEAM_VIEW", "DASHBOARD_VIEW"]),
+  requirePermissionKey(["TEAM_VIEW", "DASHBOARD_VIEW", "TICKET_CREATE"]),
   validate(teamQuerySchema),
   listTeams,
 );
 
-// GET /api/teams/:id — View single team (GLOBAL sees all; TEAM sees if active member)
+// GET /api/teams/:id — View single team
 router.get(
   "/:id",
   authenticate,
   validate(teamParamIdSchema),
   setTeamResource,
-  requirePermission("TEAM_VIEW", resolveTeam),
+  requirePermissionKey(["TEAM_VIEW", "DASHBOARD_VIEW", "TICKET_CREATE"]),
   getTeamById,
 );
 

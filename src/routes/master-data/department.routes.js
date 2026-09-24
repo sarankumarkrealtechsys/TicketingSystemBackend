@@ -31,20 +31,20 @@ router.post(
   createDepartment,
 );
 
-// GET /api/departments — Gated on DEPARTMENT_VIEW permission key
+// GET /api/departments — Accessible to DEPARTMENT_VIEW, TEAM_VIEW, TICKET_CREATE, or DASHBOARD_VIEW
 router.get(
   "/",
   authenticate,
-  requirePermissionKey("DEPARTMENT_VIEW"),
+  requirePermissionKey(["DEPARTMENT_VIEW", "TEAM_VIEW", "TICKET_CREATE", "DASHBOARD_VIEW"]),
   validate(departmentQuerySchema),
   listDepartments,
 );
 
-// GET /api/departments/:id — Gated on DEPARTMENT_VIEW permission key
+// GET /api/departments/:id — Accessible to DEPARTMENT_VIEW, TEAM_VIEW, TICKET_CREATE, or DASHBOARD_VIEW
 router.get(
   "/:id",
   authenticate,
-  requirePermissionKey("DEPARTMENT_VIEW"),
+  requirePermissionKey(["DEPARTMENT_VIEW", "TEAM_VIEW", "TICKET_CREATE", "DASHBOARD_VIEW"]),
   validate(departmentIdParamSchema),
   getDepartmentById,
 );

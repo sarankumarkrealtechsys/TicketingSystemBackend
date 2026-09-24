@@ -74,17 +74,13 @@ const createTeam = async (req, res, next) => {
 
 const listTeams = async (req, res, next) => {
   try {
-    const userPermissions = await getPermissions(req.user, req);
-    const isGlobalScope = Boolean(
-      userPermissions["TEAM_VIEW"]?.includes("GLOBAL")
-    );
-
     const departmentId = req.query.departmentId ? Number(req.query.departmentId) : undefined;
     const includeInactive = req.query.includeInactive === "true" || req.query.includeInactive === true;
+    const myTeamsOnly = req.query.myTeamsOnly === "true" || req.query.myTeamsOnly === true;
 
     const where = {};
 
-    if (!isGlobalScope && req.user?.id) {
+    if (myTeamsOnly && req.user?.id) {
       where.members = {
         some: {
           userId: req.user.id,
@@ -102,9 +98,9 @@ const listTeams = async (req, res, next) => {
     }
 
     const queryStr = serializeQueryParams(req.query);
-    const cacheKey = isGlobalScope
-      ? `masterdata:teams:global:${queryStr}`
-      : `masterdata:teams:user:${req.user.id}:${queryStr}`;
+    const cacheKey = myTeamsOnly && req.user?.id
+      ? `masterdata:teams:user:${req.user.id}:${queryStr}`
+      : `masterdata:teams:all:${queryStr}`;
 
     const data = await getOrSetCache(cacheKey, 300, () =>
       prisma.team.findMany({
@@ -348,28 +344,39 @@ const getTeamAssignees = async (req, res, next) => {
   try {
     const teamId = Number(req.params.teamId);
 
-    const team = await prisma.team.findUnique({ where: { id: teamId } });
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
+      include: {
+        members: {
+          where: { removedAt: null },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                email: true,
+                departmentId: true,
+                roleId: true,
+                status: true,
+                department: { select: { id: true, name: true } },
+                userRole: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
     if (!team) {
       throw new AppError("Team not found", 404);
     }
 
-    const assignees = await prisma.user.findMany({
-      where: {
-        departmentId: team.departmentId,
-        status: "ACTIVE",
-      },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        email: true,
-        departmentId: true,
-        roleId: true,
-        department: { select: { id: true, name: true } },
-        userRole: { select: { id: true, name: true } },
-      },
-      orderBy: { name: "asc" },
-    });
+    const assignees = team.members
+      .filter((m) => m.user && m.user.status === "ACTIVE")
+      .map((m) => ({
+        ...m.user,
+        role: m.user.userRole,
+      }));
 
     return res.status(200).json({
       status: "success",
@@ -377,10 +384,7 @@ const getTeamAssignees = async (req, res, next) => {
         teamId: team.id,
         teamName: team.name,
         departmentId: team.departmentId,
-        assignees: assignees.map((a) => ({
-          ...a,
-          role: a.userRole,
-        })),
+        assignees,
       },
     });
   } catch (error) {

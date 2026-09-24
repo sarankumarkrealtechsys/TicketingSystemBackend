@@ -3,6 +3,7 @@ const app = require("./app");
 const { env } = require("./config/env");
 const { logger } = require("./config/logger");
 const { connectRedis } = require("./lib/redis");
+const { initSocket } = require("./lib/socket");
 
 const server = http.createServer(app);
 
@@ -10,6 +11,9 @@ const startServer = async () => {
   try {
     // Attempt connections to optional / external infrastructure
     await connectRedis();
+
+    // Initialize Socket.IO attached to the existing HTTP server instance
+    initSocket(server);
 
     server.listen(env.PORT, () => {
       logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);

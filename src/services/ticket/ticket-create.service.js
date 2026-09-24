@@ -8,6 +8,8 @@ const {
 const {
   validateAndFormatFieldValue,
 } = require("../../controllers/master-data/field-definition.helper");
+const inAppNotificationService = require("../notification/in-app-notification.service");
+const { logger } = require("../../config/logger");
 
 /**
  * Creates a new Ticket with assignees, optional custom fields, and initial history.
@@ -30,23 +32,6 @@ const createTicket = async (data, user, isGlobalScope = false) => {
   }
   if (team.status !== "ACTIVE") {
     throw new AppError("Cannot create ticket for an inactive team", 400);
-  }
-
-  // Enforce team membership for non-GLOBAL (scoped) users
-  if (!isGlobalScope) {
-    const userTeamMembership = await prisma.userTeam.findFirst({
-      where: {
-        userId: user.id,
-        teamId: targetTeamId,
-        removedAt: null,
-      },
-    });
-    if (!userTeamMembership) {
-      throw new AppError(
-        "You can only create tickets for teams you are a member of",
-        403,
-      );
-    }
   }
 
   // 2. Validate Project exists and is active
@@ -225,7 +210,7 @@ const createTicket = async (data, user, isGlobalScope = false) => {
 
   // 8. Execute creation inside interactive transaction
   try {
-    return await prisma.$transaction(async (tx) => {
+    const createdTicket = await prisma.$transaction(async (tx) => {
       // 8a. Generate sequential ticket number
       const { ticketNumber } = await generateTicketNumber(tx);
 
@@ -379,6 +364,31 @@ const createTicket = async (data, user, isGlobalScope = false) => {
         include: TICKET_DETAIL_INCLUDE,
       });
     });
+
+    // 10. Dispatch in-app notifications to external assignees post-commit (exclude creator)
+    const externalAssigneeIds = uniqueAssigneeIds.filter((id) => id !== user.id);
+    if (externalAssigneeIds.length > 0 && createdTicket) {
+      setImmediate(async () => {
+        for (const assigneeId of externalAssigneeIds) {
+          try {
+            await inAppNotificationService.dispatchAndPersistNotification({
+              userId: assigneeId,
+              actorId: user.id,
+              ticketId: createdTicket.id,
+              type: "TICKET_ASSIGNED",
+              title: `Assigned to Ticket #${createdTicket.ticketNumber}`,
+              message: `${user.name} assigned you to ticket #${createdTicket.ticketNumber}: "${createdTicket.summary}"`,
+            });
+          } catch (err) {
+            logger.error(
+              `[InAppNotification] Failed to dispatch notification for ticket #${createdTicket.ticketNumber} to user ${assigneeId}: ${err.message}`,
+            );
+          }
+        }
+      });
+    }
+
+    return createdTicket;
   } catch (error) {
     handleTicketDbErrors(error);
   }

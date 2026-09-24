@@ -233,29 +233,11 @@ const resolveTicketLogTime = async (user, _resource, req) => {
   return !!activeAssignment;
 };
 
-/**
- * Scope resolver for TICKET_CREATE (TEAM scope).
- * Admin (GLOBAL) automatically short-circuits in requirePermission.
- * Standard user: must be an active member of the target team (req.body.teamId).
- */
-const resolveTicketCreate = async (user, _resource, req) => {
-  const teamId = Number(req.body?.teamId);
-  if (!teamId) return false;
-  const membership = await prisma.userTeam.findFirst({
-    where: {
-      userId: user.id,
-      teamId,
-      removedAt: null,
-    },
-  });
-  return !!membership;
-};
-
-// POST /api/tickets — Create Ticket: Admin (GLOBAL) or User (TEAM scope)
+// POST /api/tickets — Create Ticket: Any user with TICKET_CREATE or ROLE_MANAGE can create tickets across departments and teams
 router.post(
   "/",
   authenticate,
-  requirePermission(["TICKET_CREATE", "ROLE_MANAGE"], resolveTicketCreate),
+  requirePermissionKey(["TICKET_CREATE", "ROLE_MANAGE"]),
   validate(createTicketSchema),
   ticketController.createTicket,
 );

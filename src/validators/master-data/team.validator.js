@@ -88,6 +88,9 @@ const teamQuerySchema = {
     includeInactive: z
       .preprocess((val) => val === "true" || val === true, z.boolean())
       .optional(),
+    myTeamsOnly: z
+      .preprocess((val) => val === "true" || val === true, z.boolean())
+      .optional(),
   }),
 };
 
