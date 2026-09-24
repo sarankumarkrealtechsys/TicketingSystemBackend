@@ -1,6 +1,5 @@
 const fs = require("fs");
 const ticketAttachmentService = require("../../services/ticket/ticket-attachment.service");
-const notificationService = require("../../services/notification/notification.service");
 
 const uploadAttachment = async (req, res, next) => {
   try {
@@ -10,8 +9,6 @@ const uploadAttachment = async (req, res, next) => {
       req.file,
       req.user,
     );
-
-    notificationService.notifyAttachmentAdded(ticketId, data, req.user);
 
     return res.status(201).json({
       status: "success",
@@ -67,8 +64,6 @@ const deleteAttachment = async (req, res, next) => {
       attachmentId,
       req.user,
     );
-
-    notificationService.notifyAttachmentRemoved(ticketId, data, req.user);
 
     return res.status(200).json({
       status: "success",

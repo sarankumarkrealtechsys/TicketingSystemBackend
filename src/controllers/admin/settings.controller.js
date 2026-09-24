@@ -35,7 +35,44 @@ const updateEmailNotifications = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/admin/settings/in-app-notifications
+ * Returns the current global In-App Notifications toggle status.
+ */
+const getInAppNotifications = async (req, res, next) => {
+  try {
+    const data = await settingsService.getInAppNotificationsSetting();
+    return res.status(200).json({
+      status: "success",
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/admin/settings/in-app-notifications
+ * Updates the global In-App Notifications toggle in PostgreSQL.
+ */
+const updateInAppNotifications = async (req, res, next) => {
+  try {
+    const data = await settingsService.updateInAppNotificationsSetting(
+      req.body.enabled,
+    );
+    return res.status(200).json({
+      status: "success",
+      data,
+      message: "In-app notifications setting updated successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getEmailNotifications,
   updateEmailNotifications,
+  getInAppNotifications,
+  updateInAppNotifications,
 };

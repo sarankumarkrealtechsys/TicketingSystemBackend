@@ -124,12 +124,6 @@ const addAssignee = async (req, res, next) => {
 
     await invalidateCachePattern("ticket-stats:*");
 
-    notificationService.notifyAssigneeAdded(
-      Number(req.params.id),
-      data.user || data,
-      req.user,
-    );
-
     return res.status(200).json({
       status: "success",
       data,
@@ -148,14 +142,6 @@ const removeAssignee = async (req, res, next) => {
     );
 
     await invalidateCachePattern("ticket-stats:*");
-
-    if (data.removedUser) {
-      notificationService.notifyAssigneeRemoved(
-        Number(req.params.id),
-        data.removedUser,
-        req.user,
-      );
-    }
 
     return res.status(200).json({
       status: "success",
@@ -201,11 +187,6 @@ const addCollaboratingTeam = async (req, res, next) => {
 
     await invalidateCachePattern("ticket-stats:*");
 
-    notificationService.notifyCollaboratingTeamAdded(
-      Number(req.params.id),
-      data.teamId,
-    );
-
     return res.status(200).json({
       status: "success",
       data,
@@ -224,11 +205,6 @@ const removeCollaboratingTeam = async (req, res, next) => {
     );
 
     await invalidateCachePattern("ticket-stats:*");
-
-    notificationService.notifyCollaboratingTeamRemoved(
-      Number(req.params.id),
-      Number(req.params.teamId),
-    );
 
     return res.status(200).json({
       status: "success",
@@ -249,15 +225,27 @@ const changeStatus = async (req, res, next) => {
 
     await invalidateCachePattern("ticket-stats:*");
 
-    notificationService.notifyStatusChanged(
-      data,
-      {
-        previousStatusLabel: data._previousStatus?.label,
-        newStatusLabel: data.status?.label,
-        remarks: req.body.remarks,
-      },
-      req.user,
-    );
+    if (data.status?.behavior === "RESOLVED") {
+      notificationService.notifyTicketResolved(
+        data,
+        {
+          previousStatusLabel: data._previousStatus?.label,
+          newStatusLabel: data.status?.label,
+          remarks: req.body.remarks,
+        },
+        req.user,
+      );
+    } else if (data.status?.behavior === "CLOSED") {
+      notificationService.notifyTicketClosed(
+        data,
+        {
+          previousStatusLabel: data._previousStatus?.label,
+          newStatusLabel: data.status?.label,
+          remarks: req.body.remarks,
+        },
+        req.user,
+      );
+    }
 
     inAppNotificationService.notifyInAppStatusChanged({
       ticket: data,
@@ -291,7 +279,7 @@ const closeTicket = async (req, res, next) => {
 
     await invalidateCachePattern("ticket-stats:*");
 
-    notificationService.notifyStatusChanged(
+    notificationService.notifyTicketClosed(
       data,
       {
         previousStatusLabel: data._previousStatus?.label,
@@ -329,16 +317,6 @@ const changePriority = async (req, res, next) => {
 
     await invalidateCachePattern("ticket-stats:*");
 
-    notificationService.notifyPriorityChanged(
-      data,
-      {
-        previousPriorityLabel: data._previousPriority?.label,
-        newPriorityLabel: data.priority?.label,
-        remarks: req.body.remarks,
-      },
-      req.user,
-    );
-
     inAppNotificationService.notifyInAppPriorityChanged({
       ticket: data,
       previousPriorityLabel: data._previousPriority?.label,
@@ -372,12 +350,6 @@ const createSubTicket = async (req, res, next) => {
 
     await invalidateCachePattern("ticket-stats:*");
 
-    notificationService.notifySubTicketCreated(
-      data,
-      Number(req.params.id),
-      req.user,
-    );
-
     return res.status(201).json({
       status: "success",
       data,
@@ -394,8 +366,6 @@ const addRemark = async (req, res, next) => {
       req.body,
       req.user,
     );
-
-    notificationService.notifyNewRemark(Number(req.params.id), data, req.user);
 
     return res.status(201).json({
       status: "success",

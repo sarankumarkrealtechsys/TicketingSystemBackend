@@ -2,7 +2,6 @@ const { isEmailNotificationsEnabled } = require("../admin/settings.service");
 const emailService = require("./email.service");
 const templateService = require("./template.service");
 const recipientService = require("./recipient.service");
-const { prisma } = require("../../lib/prisma");
 const { logger } = require("../../config/logger");
 
 /**
@@ -72,9 +71,9 @@ const notifyTicketCreated = (ticket, actor) => {
 };
 
 /**
- * 2. Status Changed Event
+ * 2. Ticket Resolved Event
  */
-const notifyStatusChanged = (
+const notifyTicketResolved = (
   ticketIdOrTicket,
   { previousStatusLabel, newStatusLabel, remarks },
   actor,
@@ -86,58 +85,25 @@ const notifyStatusChanged = (
     const freshTicket = await recipientService.fetchTicketNotificationContext(ticketId);
     if (!freshTicket) return;
 
-    const currentStatusLabel = newStatusLabel || freshTicket.status?.label || "Unknown";
+    const currentStatusLabel =
+      newStatusLabel || freshTicket.status?.label || "Resolved";
     const recipients = recipientService.resolveStatusChangedRecipients(freshTicket);
-    const rendered = templateService.renderStatusChanged(
+    const rendered = templateService.renderTicketResolved(
       freshTicket,
       previousStatusLabel,
       currentStatusLabel,
       remarks,
     );
-    await dispatchToRecipients(recipients, rendered, "STATUS_CHANGED");
-  }, "STATUS_CHANGED");
+    await dispatchToRecipients(recipients, rendered, "TICKET_RESOLVED");
+  }, "TICKET_RESOLVED");
 };
 
 /**
- * 3. Assignee Added Event
+ * 3. Ticket Closed Event
  */
-const notifyAssigneeAdded = (ticketId, assigneeUser, actor) => {
-  runAsync(async () => {
-    const freshTicket = await recipientService.fetchTicketNotificationContext(ticketId);
-    if (!freshTicket) return;
-
-    const recipients = recipientService.resolveAssigneeAddedRecipients(assigneeUser);
-    const rendered = templateService.renderAssigneeAdded(
-      freshTicket,
-      assigneeUser.name,
-    );
-    await dispatchToRecipients(recipients, rendered, "ASSIGNEE_ADDED");
-  }, "ASSIGNEE_ADDED");
-};
-
-/**
- * 4. Assignee Removed Event
- */
-const notifyAssigneeRemoved = (ticketId, removedUser, actor) => {
-  runAsync(async () => {
-    const freshTicket = await recipientService.fetchTicketNotificationContext(ticketId);
-    if (!freshTicket) return;
-
-    const recipients = recipientService.resolveAssigneeRemovedRecipients(removedUser);
-    const rendered = templateService.renderAssigneeRemoved(
-      freshTicket,
-      removedUser.name,
-    );
-    await dispatchToRecipients(recipients, rendered, "ASSIGNEE_REMOVED");
-  }, "ASSIGNEE_REMOVED");
-};
-
-/**
- * 5. Priority Changed Event
- */
-const notifyPriorityChanged = (
+const notifyTicketClosed = (
   ticketIdOrTicket,
-  { previousPriorityLabel, newPriorityLabel, remarks },
+  { previousStatusLabel, newStatusLabel, remarks },
   actor,
 ) => {
   const ticketId =
@@ -147,91 +113,21 @@ const notifyPriorityChanged = (
     const freshTicket = await recipientService.fetchTicketNotificationContext(ticketId);
     if (!freshTicket) return;
 
-    const currentPriorityLabel =
-      newPriorityLabel || freshTicket.priority?.label || "Unknown";
-    const recipients = recipientService.resolvePriorityChangedRecipients(freshTicket);
-    const rendered = templateService.renderPriorityChanged(
+    const currentStatusLabel =
+      newStatusLabel || freshTicket.status?.label || "Closed";
+    const recipients = recipientService.resolveStatusChangedRecipients(freshTicket);
+    const rendered = templateService.renderTicketClosed(
       freshTicket,
-      previousPriorityLabel,
-      currentPriorityLabel,
+      previousStatusLabel,
+      currentStatusLabel,
       remarks,
     );
-    await dispatchToRecipients(recipients, rendered, "PRIORITY_CHANGED");
-  }, "PRIORITY_CHANGED");
+    await dispatchToRecipients(recipients, rendered, "TICKET_CLOSED");
+  }, "TICKET_CLOSED");
 };
 
 /**
- * 6. New Remark Event
- */
-const notifyNewRemark = (ticketId, remarkData, actor) => {
-  runAsync(async () => {
-    const freshTicket = await recipientService.fetchTicketNotificationContext(ticketId);
-    if (!freshTicket) return;
-
-    const remarkText = typeof remarkData === "string" ? remarkData : remarkData?.remarks;
-    const recipients = recipientService.resolveNewRemarkRecipients(freshTicket);
-    const rendered = templateService.renderNewRemark(
-      freshTicket,
-      remarkText,
-      actor?.name,
-    );
-    await dispatchToRecipients(recipients, rendered, "NEW_REMARK");
-  }, "NEW_REMARK");
-};
-
-/**
- * 7. Sub-Ticket Created Event
- */
-const notifySubTicketCreated = (subTicket, parentTicketId, actor) => {
-  runAsync(async () => {
-    const [freshSubTicket, freshParentTicket] = await Promise.all([
-      recipientService.fetchTicketNotificationContext(subTicket.id),
-      parentTicketId
-        ? recipientService.fetchTicketNotificationContext(parentTicketId)
-        : null,
-    ]);
-
-    if (!freshSubTicket) return;
-
-    const recipients = recipientService.resolveSubTicketCreatedRecipients(
-      freshSubTicket,
-      freshParentTicket,
-    );
-    const rendered = templateService.renderSubTicketCreated(
-      freshSubTicket,
-      freshParentTicket,
-    );
-    await dispatchToRecipients(recipients, rendered, "SUB_TICKET_CREATED");
-  }, "SUB_TICKET_CREATED");
-};
-
-/**
- * 8. Collaborating Team Added Event
- */
-const notifyCollaboratingTeamAdded = (ticketId, collaboratingTeamId) => {
-  runAsync(async () => {
-    const freshTicket =
-      await recipientService.fetchTicketNotificationContext(ticketId);
-    if (!freshTicket) return;
-
-    const collabTeam = await prisma.team.findUnique({
-      where: { id: Number(collaboratingTeamId) },
-      select: { id: true, name: true, teamAdminEmail: true, status: true },
-    });
-    if (!collabTeam || collabTeam.status !== "ACTIVE") return;
-
-    const recipients =
-      recipientService.resolveCollaboratingTeamAddedRecipients(collabTeam);
-    const rendered = templateService.renderCollaboratingTeamAdded(
-      freshTicket,
-      collabTeam.name,
-    );
-    await dispatchToRecipients(recipients, rendered, "COLLABORATING_TEAM_ADDED");
-  }, "COLLABORATING_TEAM_ADDED");
-};
-
-/**
- * 9. Ticket Reassigned Event
+ * 4. Ticket Reassigned Event
  */
 const notifyTicketReassigned = (ticketId, reassignedTicket, actor) => {
   runAsync(async () => {
@@ -251,87 +147,15 @@ const notifyTicketReassigned = (ticketId, reassignedTicket, actor) => {
       freshTicket,
       newTeamName,
       newAssigneeNames,
+      typeof reassignedTicket === "object" ? reassignedTicket.remarks : undefined,
     );
     await dispatchToRecipients(recipients, rendered, "TICKET_REASSIGNED");
   }, "TICKET_REASSIGNED");
 };
 
-/**
- * 10. Collaborating Team Removed Event
- */
-const notifyCollaboratingTeamRemoved = (ticketId, removedTeamId) => {
-  runAsync(async () => {
-    const freshTicket =
-      await recipientService.fetchTicketNotificationContext(ticketId);
-    if (!freshTicket) return;
-
-    const removedTeam = await prisma.team.findUnique({
-      where: { id: Number(removedTeamId) },
-      select: { id: true, name: true, teamAdminEmail: true, status: true },
-    });
-    if (!removedTeam) return;
-
-    const recipients =
-      recipientService.resolveCollaboratingTeamRemovedRecipients(removedTeam);
-    const rendered = templateService.renderCollaboratingTeamRemoved(
-      freshTicket,
-      removedTeam.name,
-    );
-    await dispatchToRecipients(recipients, rendered, "COLLABORATING_TEAM_REMOVED");
-  }, "COLLABORATING_TEAM_REMOVED");
-};
-
-/**
- * 11. Attachment Added Event
- */
-const notifyAttachmentAdded = (ticketId, attachment, actor) => {
-  runAsync(async () => {
-    const freshTicket =
-      await recipientService.fetchTicketNotificationContext(ticketId);
-    if (!freshTicket) return;
-
-    const fileName = attachment?.originalFileName || "Unknown File";
-    const recipients = recipientService.resolveAttachmentRecipients(freshTicket);
-    const rendered = templateService.renderAttachmentAdded(
-      freshTicket,
-      fileName,
-      actor?.name,
-    );
-    await dispatchToRecipients(recipients, rendered, "ATTACHMENT_ADDED");
-  }, "ATTACHMENT_ADDED");
-};
-
-/**
- * 12. Attachment Removed Event
- */
-const notifyAttachmentRemoved = (ticketId, attachment, actor) => {
-  runAsync(async () => {
-    const freshTicket =
-      await recipientService.fetchTicketNotificationContext(ticketId);
-    if (!freshTicket) return;
-
-    const fileName = attachment?.originalFileName || "Unknown File";
-    const recipients = recipientService.resolveAttachmentRecipients(freshTicket);
-    const rendered = templateService.renderAttachmentRemoved(
-      freshTicket,
-      fileName,
-      actor?.name,
-    );
-    await dispatchToRecipients(recipients, rendered, "ATTACHMENT_REMOVED");
-  }, "ATTACHMENT_REMOVED");
-};
-
 module.exports = {
   notifyTicketCreated,
-  notifyStatusChanged,
-  notifyAssigneeAdded,
-  notifyAssigneeRemoved,
-  notifyPriorityChanged,
-  notifyNewRemark,
-  notifySubTicketCreated,
-  notifyCollaboratingTeamAdded,
+  notifyTicketResolved,
+  notifyTicketClosed,
   notifyTicketReassigned,
-  notifyCollaboratingTeamRemoved,
-  notifyAttachmentAdded,
-  notifyAttachmentRemoved,
 };

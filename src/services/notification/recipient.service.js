@@ -134,97 +134,6 @@ const resolveStatusChangedRecipients = (ticket) => {
   return deduplicateRecipients(recipients);
 };
 
-const resolveAssigneeAddedRecipients = (assigneeUser) => {
-  if (!assigneeUser?.email) return [];
-  return deduplicateRecipients([
-    {
-      email: assigneeUser.email,
-      name: assigneeUser.name || "Assignee",
-      userId: assigneeUser.id,
-      role: "Assignee",
-    },
-  ]);
-};
-
-const resolveAssigneeRemovedRecipients = (removedUser) => {
-  if (!removedUser?.email) return [];
-  return deduplicateRecipients([
-    {
-      email: removedUser.email,
-      name: removedUser.name || "Assignee",
-      userId: removedUser.id,
-      role: "Assignee",
-    },
-  ]);
-};
-
-const resolvePriorityChangedRecipients = (ticket) => {
-  const recipients = collectBaseTicketRecipients(ticket);
-  if (
-    env.ADMIN_NOTIFICATION_EMAIL &&
-    ticket.priority?.label &&
-    /high|critical|urgent/i.test(ticket.priority.label)
-  ) {
-    recipients.push({
-      email: env.ADMIN_NOTIFICATION_EMAIL,
-      name: "System Admin",
-      role: "Admin",
-    });
-  }
-  return deduplicateRecipients(recipients);
-};
-
-const resolveNewRemarkRecipients = (ticket) => {
-  return deduplicateRecipients(collectBaseTicketRecipients(ticket));
-};
-
-const resolveSubTicketCreatedRecipients = (subTicket, parentTicket) => {
-  const recipients = collectBaseTicketRecipients(subTicket);
-
-  if (parentTicket) {
-    if (parentTicket.createdBy?.email) {
-      recipients.push({
-        email: parentTicket.createdBy.email,
-        name: parentTicket.createdBy.name,
-        userId: parentTicket.createdBy.id,
-        role: "Parent Ticket Creator",
-      });
-    }
-    if (Array.isArray(parentTicket.assignees)) {
-      for (const a of parentTicket.assignees) {
-        if (a.user?.email) {
-          recipients.push({
-            email: a.user.email,
-            name: a.user.name,
-            userId: a.user.id,
-            role: "Parent Ticket Assignee",
-          });
-        }
-      }
-    }
-  }
-
-  return deduplicateRecipients(recipients);
-};
-
-const resolveCollaboratingTeamAddedRecipients = (collabTeam) => {
-  const list = [];
-  if (
-    collabTeam?.teamAdminEmail &&
-    typeof collabTeam.teamAdminEmail === "string"
-  ) {
-    const email = collabTeam.teamAdminEmail.trim();
-    if (email) {
-      list.push({
-        email,
-        name: `${collabTeam.name || "Collaborating Team"} Lead`,
-        role: "Collaborating Team Lead",
-      });
-    }
-  }
-  return deduplicateRecipients(list);
-};
-
 /**
  * Resolves recipients for ticket reassignment.
  * Notifies all active assignees (new and previous), creator, and team leads.
@@ -235,48 +144,10 @@ const resolveReassignmentRecipients = (ticket) => {
   return deduplicateRecipients(recipients);
 };
 
-/**
- * Resolves recipients for collaborating team removal.
- * Notifies the removed team's admin email.
- */
-const resolveCollaboratingTeamRemovedRecipients = (collabTeam) => {
-  const list = [];
-  if (
-    collabTeam?.teamAdminEmail &&
-    typeof collabTeam.teamAdminEmail === "string"
-  ) {
-    const email = collabTeam.teamAdminEmail.trim();
-    if (email) {
-      list.push({
-        email,
-        name: `${collabTeam.name || "Team"} Lead`,
-        role: "Removed Collaborating Team Lead",
-      });
-    }
-  }
-  return deduplicateRecipients(list);
-};
-
-/**
- * Resolves recipients for attachment events.
- * Notifies creator, active assignees, and team leads.
- */
-const resolveAttachmentRecipients = (ticket) => {
-  return deduplicateRecipients(collectBaseTicketRecipients(ticket));
-};
-
 module.exports = {
   deduplicateRecipients,
   fetchTicketNotificationContext,
   resolveTicketCreatedRecipients,
   resolveStatusChangedRecipients,
-  resolveAssigneeAddedRecipients,
-  resolveAssigneeRemovedRecipients,
-  resolvePriorityChangedRecipients,
-  resolveNewRemarkRecipients,
-  resolveSubTicketCreatedRecipients,
-  resolveCollaboratingTeamAddedRecipients,
   resolveReassignmentRecipients,
-  resolveCollaboratingTeamRemovedRecipients,
-  resolveAttachmentRecipients,
 };

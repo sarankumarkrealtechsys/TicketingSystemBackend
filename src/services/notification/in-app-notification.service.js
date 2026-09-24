@@ -2,6 +2,10 @@ const { prisma } = require("../../lib/prisma");
 const { AppError } = require("../../utils/errors");
 const { getIO } = require("../../lib/socket");
 const { logger } = require("../../config/logger");
+const {
+  isInAppNotificationsEnabled,
+} = require("../admin/settings.service");
+
 
 /**
  * Creates an in-app notification record in the database.
@@ -227,6 +231,14 @@ const markAllNotificationsAsRead = async (userId) => {
  * @returns {Promise<Object>} Created notification record
  */
 const dispatchAndPersistNotification = async (params) => {
+  const enabled = await isInAppNotificationsEnabled();
+  if (!enabled) {
+    logger.info(
+      `[InAppNotification] In-app notifications globally disabled; skipping dispatch and persistence for user:${params?.userId}.`,
+    );
+    return null;
+  }
+
   const record = await createNotification(params);
 
   try {

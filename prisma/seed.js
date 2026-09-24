@@ -92,8 +92,10 @@ const PERMISSIONS = [
   // Role management
   { key: 'ROLE_MANAGE',              description: 'Create, update, and manage roles and their permissions',      category: 'Role' },
 
-  // System settings
-  { key: 'SYSTEM_SETTINGS_MANAGE',   description: 'Manage global application settings and configuration',         category: 'System' },
+  // System settings & Notification channels
+  { key: 'SYSTEM_SETTINGS_MANAGE',       description: 'Manage global application settings and configuration',         category: 'System' },
+  { key: 'EMAIL_NOTIFICATIONS_MANAGE',   description: 'Manage global email notification delivery settings',           category: 'System' },
+  { key: 'IN_APP_NOTIFICATIONS_MANAGE',  description: 'Manage global in-app notification dispatch settings',          category: 'System' },
 ];
 
 const ADMIN_PERMISSIONS = PERMISSIONS.map((p) => ({
