@@ -16,6 +16,7 @@ const uploadAttachment = async (ticketId, file, user) => {
     where: { id: ticketId },
     select: {
       id: true,
+      ticketNumber: true,
       status: { select: { behavior: true } },
     },
   });
@@ -59,8 +60,12 @@ const uploadAttachment = async (ticketId, file, user) => {
     );
   }
 
+  const folderName = ticket.ticketNumber
+    ? ticket.ticketNumber.replace(/[^a-zA-Z0-9_-]/g, "_")
+    : ticketId.toString();
+
   const relativeStorageKey = path
-    .join("tickets", ticketId.toString(), path.basename(file.path))
+    .join("tickets", folderName, path.basename(file.path))
     .replace(/\\/g, "/");
 
   const ext = path.extname(file.originalname).toLowerCase().slice(0, 20);
@@ -143,7 +148,38 @@ const getAttachmentForDownload = async (ticketId, attachmentId) => {
     throw new AppError("Attachment not found", 404);
   }
 
-  const absolutePath = path.resolve(uploadBaseDir, attachment.storageKey);
+  let absolutePath = path.resolve(uploadBaseDir, attachment.storageKey);
+
+  if (!fs.existsSync(absolutePath)) {
+    // Backward compatibility fallback: check if stored under numeric ID or ticket number folder
+    const fileName = path.basename(attachment.storageKey);
+    const numericPath = path.resolve(
+      uploadBaseDir,
+      "tickets",
+      ticketId.toString(),
+      fileName,
+    );
+
+    if (fs.existsSync(numericPath)) {
+      absolutePath = numericPath;
+    } else {
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: ticketId },
+        select: { ticketNumber: true },
+      });
+      if (ticket?.ticketNumber) {
+        const ticketNumPath = path.resolve(
+          uploadBaseDir,
+          "tickets",
+          ticket.ticketNumber.replace(/[^a-zA-Z0-9_-]/g, "_"),
+          fileName,
+        );
+        if (fs.existsSync(ticketNumPath)) {
+          absolutePath = ticketNumPath;
+        }
+      }
+    }
+  }
 
   if (!fs.existsSync(absolutePath)) {
     throw new AppError("Attachment file not found on storage disk", 404);

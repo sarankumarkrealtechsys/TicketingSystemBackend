@@ -1,6 +1,11 @@
+const path = require("path");
 const { z } = require("zod");
 const { AppError } = require("../../utils/errors");
-const { safeUnlink } = require("../../middlewares/upload");
+const {
+  safeUnlink,
+  MAX_FILE_SIZE,
+  ALLOWED_EXTENSIONS,
+} = require("../../middlewares/upload");
 
 const ticketAttachmentParamSchema = {
   params: z.object({
@@ -25,7 +30,7 @@ const ticketAttachmentUploadParamSchema = {
 };
 
 /**
- * Validates that Multer received a non-empty file
+ * Validates that Multer received a non-empty file within size and extension limits
  */
 const validateUploadedFile = (req, _res, next) => {
   if (!req.file) {
@@ -37,6 +42,27 @@ const validateUploadedFile = (req, _res, next) => {
     return next(
       new AppError(
         "File size must be greater than 0 bytes. Empty files are not allowed.",
+        400,
+      ),
+    );
+  }
+
+  if (req.file.size > MAX_FILE_SIZE) {
+    safeUnlink(req.file.path);
+    return next(
+      new AppError(
+        `File size exceeds maximum allowed limit of ${Math.round(MAX_FILE_SIZE / (1024 * 1024))} MB.`,
+        400,
+      ),
+    );
+  }
+
+  const ext = path.extname(req.file.originalname || "").toLowerCase();
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    safeUnlink(req.file.path);
+    return next(
+      new AppError(
+        `File extension "${ext || "unknown"}" is not permitted. Supported formats include Excel (.xlsx, .xls), PDF, photos/images (.png, .jpg, .webp), and documents.`,
         400,
       ),
     );

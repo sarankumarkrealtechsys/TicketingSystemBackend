@@ -23,18 +23,19 @@ const app = express();
 // Security headers
 app.use(helmet());
 
-// CORS configuration
-const allowedOrigins = [
-  env.CORS_ORIGIN,
-  "http://localhost:5173",
-  "http://localhost:5174",
-].filter(Boolean);
+// CORS configuration - sourced dynamically from env.CORS_ORIGIN (supports comma-separated list)
+const allowedOrigins = env.CORS_ORIGIN
+  ? env.CORS_ORIGIN.split(",")
+      .map((origin) => origin.trim().replace(/\/+$/, ""))
+      .filter(Boolean)
+  : [];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. server-to-server or curl) or allowed origins
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Allow requests with no origin (e.g. server-to-server or mobile app) or allowed origins
+      const normalizedOrigin = origin ? origin.replace(/\/+$/, "") : "";
+      if (!origin || allowedOrigins.includes(normalizedOrigin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));

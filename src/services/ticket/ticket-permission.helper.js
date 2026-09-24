@@ -96,13 +96,15 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
       hasGlobal("TICKET_LOG_TIME") ||
       (hasOwn("TICKET_LOG_TIME") && (isCreator || isAssignee)),
     addAttachment:
-      hasGlobal("TICKET_ATTACHMENT_MANAGE") ||
-      (hasOwn("TICKET_ATTACHMENT_MANAGE") && (isCreator || isAssignee)) ||
-      (hasAssigned("TICKET_ATTACHMENT_MANAGE") && isAssignee),
+      !isClosed &&
+      (hasGlobal("TICKET_ATTACHMENT_MANAGE") ||
+        (hasOwn("TICKET_ATTACHMENT_MANAGE") && (isCreator || isAssignee)) ||
+        (hasAssigned("TICKET_ATTACHMENT_MANAGE") && isAssignee)),
     removeAttachment:
-      hasGlobal("TICKET_ATTACHMENT_MANAGE") ||
-      (hasOwn("TICKET_ATTACHMENT_MANAGE") && (isCreator || isAssignee)) ||
-      (hasAssigned("TICKET_ATTACHMENT_MANAGE") && isAssignee),
+      !isClosed &&
+      (hasGlobal("TICKET_ATTACHMENT_MANAGE") ||
+        (hasOwn("TICKET_ATTACHMENT_MANAGE") && (isCreator || isAssignee)) ||
+        (hasAssigned("TICKET_ATTACHMENT_MANAGE") && isAssignee)),
     // Standard user can only close if they are an active assignee AND ticket status is RESOLVED.
     // Admin can close any ticket that is not already CLOSED.
     close:

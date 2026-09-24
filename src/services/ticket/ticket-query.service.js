@@ -408,7 +408,15 @@ const getTicketById = async (id, user, isGlobalScope = false, userPermissions = 
           checksum: true,
           createdAt: true,
           uploadedById: true,
+          uploadedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
+        orderBy: { createdAt: "desc" },
       },
     },
   });
@@ -546,6 +554,7 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
   }
 
   // Fetch active master data and tickets in parallel
+  // Global statuses are pre-seeded for byStatus, while byStatusBehavior aggregates all tickets
   const [allPriorities, allStatuses, tickets] = await Promise.all([
     prisma.priorityLevel.findMany({
       where: { status: "ACTIVE" },
@@ -553,16 +562,16 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
       select: { id: true, label: true, sortOrder: true },
     }),
     prisma.ticketStatus.findMany({
-      where: statusWhere,
+      where: { status: "ACTIVE", teamId: null },
       orderBy: { sortOrder: "asc" },
-      select: { id: true, label: true, behavior: true, sortOrder: true },
+      select: { id: true, label: true, behavior: true, sortOrder: true, teamId: true },
     }),
     prisma.ticket.findMany({
       where,
       select: {
         id: true,
         statusId: true,
-        status: { select: { id: true, label: true, behavior: true, sortOrder: true } },
+        status: { select: { id: true, label: true, behavior: true, sortOrder: true, teamId: true } },
         priorityId: true,
         priority: { select: { id: true, label: true, sortOrder: true } },
       },
@@ -588,7 +597,7 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
     });
   }
 
-  // Pre-seed statusMap with all active statuses
+  // Pre-seed statusMap with global default statuses
   const statusMap = new Map();
   for (const s of allStatuses) {
     statusMap.set(s.id, {
@@ -618,7 +627,8 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
       priorityMap.get(t.priorityId).count++;
     }
 
-    if (t.statusId) {
+    // Only tally global statuses into byStatus map; team-specific statuses roll up into byStatusBehavior
+    if (t.statusId && t.status?.teamId === null) {
       if (!statusMap.has(t.statusId)) {
         statusMap.set(t.statusId, {
           statusId: t.statusId,

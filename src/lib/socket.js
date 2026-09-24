@@ -94,16 +94,18 @@ const socketAuthMiddleware = async (socket, next) => {
  * @returns {Server}
  */
 const initSocket = (server) => {
-  const allowedOrigins = [
-    env.CORS_ORIGIN,
-    "http://localhost:5173",
-    "http://localhost:5174",
-  ].filter(Boolean);
+  // CORS configuration - sourced dynamically from env.CORS_ORIGIN (supports comma-separated list)
+  const allowedOrigins = env.CORS_ORIGIN
+    ? env.CORS_ORIGIN.split(",")
+        .map((origin) => origin.trim().replace(/\/+$/, ""))
+        .filter(Boolean)
+    : [];
 
   io = new Server(server, {
     cors: {
       origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
+        const normalizedOrigin = origin ? origin.replace(/\/+$/, "") : "";
+        if (!origin || allowedOrigins.includes(normalizedOrigin)) {
           callback(null, true);
         } else {
           callback(new Error("Not allowed by CORS"));

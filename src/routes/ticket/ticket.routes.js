@@ -111,8 +111,11 @@ const resolveTicketAttachmentManage = async (user, _resource, req) => {
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketId },
     select: {
+      id: true,
+      ticketNumber: true,
       createdById: true,
       parentTicketId: true,
+      status: { select: { behavior: true } },
       parentTicket: {
         select: { createdById: true },
       },
@@ -124,6 +127,8 @@ const resolveTicketAttachmentManage = async (user, _resource, req) => {
   });
   if (!ticket) return false;
 
+  req.ticket = ticket;
+
   const isCreator = Number(ticket.createdById) === Number(user.id);
   const isParentCreator =
     ticket.parentTicket &&
@@ -134,6 +139,40 @@ const resolveTicketAttachmentManage = async (user, _resource, req) => {
 };
 
 const resolveTicketCreatorOrAssignee = resolveTicketAttachmentManage;
+
+/**
+ * Middleware executed before Multer streams file to disk.
+ * Validates ticket exists and is open, attaching req.ticket with ticketNumber.
+ */
+const resolveTicketForUpload = async (req, res, next) => {
+  try {
+    if (req.ticket?.ticketNumber) {
+      return next();
+    }
+    const ticketId = Number(req.params.id);
+    if (!ticketId) {
+      return res.status(400).json({ status: "error", message: "Invalid ticket ID" });
+    }
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        id: true,
+        ticketNumber: true,
+        status: { select: { behavior: true } },
+      },
+    });
+    if (!ticket) {
+      return res.status(404).json({ status: "error", message: "Ticket not found" });
+    }
+    if (ticket.status?.behavior === "CLOSED") {
+      return res.status(400).json({ status: "error", message: "Cannot upload attachments to a closed ticket" });
+    }
+    req.ticket = ticket;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
 
 /**
  * Scope resolver for TICKET_CHANGE_STATUS, TICKET_CHANGE_PRIORITY, and TICKET_CLOSE
@@ -364,6 +403,7 @@ router.post(
     "TICKET_ATTACHMENT_MANAGE",
     resolveTicketAttachmentManage,
   ),
+  resolveTicketForUpload,
   uploadRateLimiter,
   upload.single("file"),
   validateUploadedFile,
