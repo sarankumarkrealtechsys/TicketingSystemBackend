@@ -8,6 +8,7 @@ const ticketTeamService = require("../../services/ticket/ticket-team.service");
 const ticketLifecycleService = require("../../services/ticket/ticket-lifecycle.service");
 const ticketRemarkService = require("../../services/ticket/ticket-remark.service");
 const notificationService = require("../../services/notification/notification.service");
+const inAppNotificationService = require("../../services/notification/in-app-notification.service");
 const { getPermissions } = require("../../services/auth/permission.service");
 const { getOrSetCache, invalidateCachePattern } = require("../../utils/cache");
 
@@ -258,6 +259,15 @@ const changeStatus = async (req, res, next) => {
       req.user,
     );
 
+    inAppNotificationService.notifyInAppStatusChanged({
+      ticket: data,
+      previousBehavior: data._previousStatus?.behavior,
+      newBehavior: data.status?.behavior,
+      newStatusLabel: data.status?.label,
+      remarks: req.body.remarks,
+      actor: req.user,
+    });
+
     return res.status(200).json({
       status: "success",
       data,
@@ -291,6 +301,15 @@ const closeTicket = async (req, res, next) => {
       req.user,
     );
 
+    inAppNotificationService.notifyInAppStatusChanged({
+      ticket: data,
+      previousBehavior: data._previousStatus?.behavior,
+      newBehavior: data.status?.behavior,
+      newStatusLabel: data.status?.label,
+      remarks: req.body.remarks || "Ticket closed",
+      actor: req.user,
+    });
+
     return res.status(200).json({
       status: "success",
       data,
@@ -319,6 +338,13 @@ const changePriority = async (req, res, next) => {
       },
       req.user,
     );
+
+    inAppNotificationService.notifyInAppPriorityChanged({
+      ticket: data,
+      previousPriorityLabel: data._previousPriority?.label,
+      newPriorityLabel: data.priority?.label,
+      actor: req.user,
+    });
 
     return res.status(200).json({
       status: "success",

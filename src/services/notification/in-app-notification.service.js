@@ -244,10 +244,215 @@ const dispatchAndPersistNotification = async (params) => {
   return record;
 };
 
+/**
+ * Dispatches an in-app notification when a user is assigned to an existing ticket.
+ */
+const notifyInAppAssigneeAdded = ({
+  ticketId,
+  ticketNumber,
+  summary,
+  assigneeUserId,
+  actor,
+}) => {
+  const targetUserId = Number(assigneeUserId);
+  if (!targetUserId || targetUserId === Number(actor?.id)) return;
+
+  setImmediate(async () => {
+    try {
+      await dispatchAndPersistNotification({
+        userId: targetUserId,
+        actorId: actor?.id ? Number(actor.id) : null,
+        ticketId: Number(ticketId),
+        type: "TICKET_ASSIGNED",
+        title: `Assigned to Ticket #${ticketNumber}`,
+        message: `${actor?.name || "Someone"} assigned you to ticket #${ticketNumber}: "${summary}"`,
+      });
+    } catch (err) {
+      logger.error(
+        `[InAppNotification] Failed to dispatch assignee added notification for ticket #${ticketNumber}: ${err.message}`,
+      );
+    }
+  });
+};
+
+/**
+ * Dispatches in-app notifications when a ticket is reassigned.
+ */
+const notifyInAppTicketReassigned = ({
+  ticketId,
+  ticketNumber,
+  summary,
+  assigneeUserIds = [],
+  teamName,
+  actor,
+}) => {
+  const actorId = actor?.id ? Number(actor.id) : null;
+  const uniqueRecipients = [
+    ...new Set(assigneeUserIds.map(Number).filter((id) => id && id !== actorId)),
+  ];
+
+  if (uniqueRecipients.length === 0) return;
+
+  setImmediate(async () => {
+    for (const uid of uniqueRecipients) {
+      try {
+        await dispatchAndPersistNotification({
+          userId: uid,
+          actorId,
+          ticketId: Number(ticketId),
+          type: "TICKET_ASSIGNED",
+          title: `Ticket #${ticketNumber} Reassigned`,
+          message: `${actor?.name || "Someone"} reassigned ticket #${ticketNumber} to ${teamName || "a new team"}: "${summary}"`,
+        });
+      } catch (err) {
+        logger.error(
+          `[InAppNotification] Failed to dispatch reassignment notification for ticket #${ticketNumber} to user ${uid}: ${err.message}`,
+        );
+      }
+    }
+  });
+};
+
+/**
+ * Dispatches in-app notifications for ticket status transitions: Resolved, Closed, Reopened.
+ */
+const notifyInAppStatusChanged = ({
+  ticket,
+  previousBehavior,
+  newBehavior,
+  newStatusLabel,
+  actor,
+}) => {
+  if (!ticket || !ticket.id) return;
+
+  setImmediate(async () => {
+    try {
+      // 1. Resolve recipients: ticket creator + active assignees
+      const activeAssignees = await prisma.ticketAssignee.findMany({
+        where: { ticketId: ticket.id, removedAt: null },
+        select: { userId: true },
+      });
+
+      const actorId = actor?.id ? Number(actor.id) : null;
+      const recipientIds = new Set();
+
+      if (ticket.createdById && Number(ticket.createdById) !== actorId) {
+        recipientIds.add(Number(ticket.createdById));
+      }
+
+      for (const a of activeAssignees) {
+        if (a.userId && Number(a.userId) !== actorId) {
+          recipientIds.add(Number(a.userId));
+        }
+      }
+
+      if (recipientIds.size === 0) return;
+
+      // 2. Format title and message based on transition behavior
+      let title;
+      let message;
+
+      if (newBehavior === "RESOLVED") {
+        title = `Ticket #${ticket.ticketNumber} Resolved`;
+        message = `${actor?.name || "Someone"} marked ticket #${ticket.ticketNumber} as Resolved ("${ticket.summary}")`;
+      } else if (newBehavior === "CLOSED") {
+        title = `Ticket #${ticket.ticketNumber} Closed`;
+        message = `${actor?.name || "Someone"} closed ticket #${ticket.ticketNumber} ("${ticket.summary}")`;
+      } else if (
+        (previousBehavior === "RESOLVED" || previousBehavior === "CLOSED") &&
+        (newBehavior === "OPEN" || newBehavior === "IN_PROGRESS")
+      ) {
+        title = `Ticket #${ticket.ticketNumber} Reopened`;
+        message = `${actor?.name || "Someone"} reopened ticket #${ticket.ticketNumber} back to ${newStatusLabel || "In Progress"} ("${ticket.summary}")`;
+      } else {
+        title = `Ticket #${ticket.ticketNumber} Status: ${newStatusLabel || "Updated"}`;
+        message = `${actor?.name || "Someone"} updated ticket #${ticket.ticketNumber} status to ${newStatusLabel || "new status"} ("${ticket.summary}")`;
+      }
+
+      // 3. Dispatch to all recipients
+      for (const uid of recipientIds) {
+        await dispatchAndPersistNotification({
+          userId: uid,
+          actorId,
+          ticketId: ticket.id,
+          type: "TICKET_ASSIGNED",
+          title,
+          message,
+        });
+      }
+    } catch (err) {
+      logger.error(
+        `[InAppNotification] Failed to dispatch status notification for ticket #${ticket.ticketNumber}: ${err.message}`,
+      );
+    }
+  });
+};
+
+/**
+ * Dispatches in-app notifications for ticket priority changes & escalations.
+ */
+const notifyInAppPriorityChanged = ({
+  ticket,
+  previousPriorityLabel,
+  newPriorityLabel,
+  actor,
+}) => {
+  if (!ticket || !ticket.id) return;
+
+  setImmediate(async () => {
+    try {
+      const activeAssignees = await prisma.ticketAssignee.findMany({
+        where: { ticketId: ticket.id, removedAt: null },
+        select: { userId: true },
+      });
+
+      const actorId = actor?.id ? Number(actor.id) : null;
+      const recipientIds = new Set();
+
+      if (ticket.createdById && Number(ticket.createdById) !== actorId) {
+        recipientIds.add(Number(ticket.createdById));
+      }
+
+      for (const a of activeAssignees) {
+        if (a.userId && Number(a.userId) !== actorId) {
+          recipientIds.add(Number(a.userId));
+        }
+      }
+
+      if (recipientIds.size === 0) return;
+
+      const isEscalation = /high|critical|urgent/i.test(newPriorityLabel || "");
+      const title = isEscalation
+        ? `Ticket #${ticket.ticketNumber} Escalated: ${newPriorityLabel}`
+        : `Ticket #${ticket.ticketNumber} Priority: ${newPriorityLabel}`;
+      const message = `${actor?.name || "Someone"} changed priority of ticket #${ticket.ticketNumber} from ${previousPriorityLabel || "Normal"} to ${newPriorityLabel || "Updated"} ("${ticket.summary}")`;
+
+      for (const uid of recipientIds) {
+        await dispatchAndPersistNotification({
+          userId: uid,
+          actorId,
+          ticketId: ticket.id,
+          type: "TICKET_ASSIGNED",
+          title,
+          message,
+        });
+      }
+    } catch (err) {
+      logger.error(
+        `[InAppNotification] Failed to dispatch priority notification for ticket #${ticket.ticketNumber}: ${err.message}`,
+      );
+    }
+  });
+};
+
 module.exports = {
   createNotification,
   getUserNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
   dispatchAndPersistNotification,
+  notifyInAppAssigneeAdded,
+  notifyInAppTicketReassigned,
+  notifyInAppStatusChanged,
+  notifyInAppPriorityChanged,
 };

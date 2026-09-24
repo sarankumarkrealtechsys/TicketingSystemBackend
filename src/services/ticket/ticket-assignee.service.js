@@ -1,6 +1,7 @@
 const { prisma } = require("../../lib/prisma");
 const { AppError } = require("../../utils/errors");
 const { handleTicketDbErrors } = require("./ticket-common.service");
+const inAppNotificationService = require("../notification/in-app-notification.service");
 
 /**
  * Adds an assignee to an existing ticket.
@@ -146,6 +147,16 @@ const addTicketAssignee = async (ticketId, data, user) => {
 
       return assigneeRecord;
     });
+
+    inAppNotificationService.notifyInAppAssigneeAdded({
+      ticketId: ticket.id,
+      ticketNumber: ticket.ticketNumber,
+      summary: ticket.summary,
+      assigneeUserId: assigneeUser.id,
+      actor: user,
+    });
+
+    return result;
   } catch (error) {
     handleTicketDbErrors(error);
   }

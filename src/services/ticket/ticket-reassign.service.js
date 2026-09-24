@@ -1,6 +1,7 @@
 const { prisma } = require("../../lib/prisma");
 const { AppError } = require("../../utils/errors");
 const { handleTicketDbErrors } = require("./ticket-common.service");
+const inAppNotificationService = require("../notification/in-app-notification.service");
 
 /**
  * Full Reassignment of a ticket (Admin only).
@@ -92,7 +93,7 @@ const reassignTicket = async (ticketId, data, user) => {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Soft-remove all currently active assignees
       await tx.ticketAssignee.updateMany({
         where: {
@@ -290,6 +291,17 @@ const reassignTicket = async (ticketId, data, user) => {
         },
       });
     });
+
+    inAppNotificationService.notifyInAppTicketReassigned({
+      ticketId: ticket.id,
+      ticketNumber: ticket.ticketNumber,
+      summary: ticket.summary,
+      assigneeUserIds: uniqueAssigneeIds,
+      teamName: targetTeam.name,
+      actor: user,
+    });
+
+    return result;
   } catch (error) {
     handleTicketDbErrors(error);
   }
