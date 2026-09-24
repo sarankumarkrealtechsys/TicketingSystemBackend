@@ -109,6 +109,63 @@ const collectCollabTeamLeads = (ticket) => {
   return list;
 };
 
+const resolveTicketCreatedCreatorRecipients = (ticket) => {
+  const list = [];
+  if (ticket.createdBy?.email) {
+    list.push({
+      email: ticket.createdBy.email,
+      name: ticket.createdBy.name,
+      userId: ticket.createdBy.id,
+      role: "Creator",
+    });
+  }
+  return deduplicateRecipients(list);
+};
+
+const resolveTicketCreatedAssigneeRecipients = (ticket) => {
+  const list = [];
+  const creatorEmail = ticket.createdBy?.email?.trim().toLowerCase();
+
+  if (Array.isArray(ticket.assignees)) {
+    for (const a of ticket.assignees) {
+      if (a.user?.email) {
+        list.push({
+          email: a.user.email,
+          name: a.user.name,
+          userId: a.user.id,
+          role: "Assignee",
+        });
+      }
+    }
+  }
+
+  if (ticket.team?.teamAdminEmail) {
+    list.push({
+      email: ticket.team.teamAdminEmail,
+      name: `${ticket.team.name} Lead`,
+      role: "Primary Team Lead",
+    });
+  }
+
+  list.push(...collectCollabTeamLeads(ticket));
+
+  if (
+    env.ADMIN_NOTIFICATION_EMAIL &&
+    ticket.priority?.label &&
+    /high|critical|urgent/i.test(ticket.priority.label)
+  ) {
+    list.push({
+      email: env.ADMIN_NOTIFICATION_EMAIL,
+      name: "System Admin",
+      role: "Admin",
+    });
+  }
+
+  return deduplicateRecipients(list).filter(
+    (r) => !creatorEmail || r.email !== creatorEmail,
+  );
+};
+
 const resolveTicketCreatedRecipients = (ticket) => {
   const recipients = collectBaseTicketRecipients(ticket);
   recipients.push(...collectCollabTeamLeads(ticket));
@@ -144,10 +201,23 @@ const resolveReassignmentRecipients = (ticket) => {
   return deduplicateRecipients(recipients);
 };
 
+/**
+ * Resolves recipients for ticket deletion.
+ * Notifies creator, assignees, and team leads.
+ */
+const resolveTicketDeletedRecipients = (ticket) => {
+  const recipients = collectBaseTicketRecipients(ticket);
+  recipients.push(...collectCollabTeamLeads(ticket));
+  return deduplicateRecipients(recipients);
+};
+
 module.exports = {
   deduplicateRecipients,
   fetchTicketNotificationContext,
   resolveTicketCreatedRecipients,
+  resolveTicketCreatedCreatorRecipients,
+  resolveTicketCreatedAssigneeRecipients,
   resolveStatusChangedRecipients,
   resolveReassignmentRecipients,
+  resolveTicketDeletedRecipients,
 };

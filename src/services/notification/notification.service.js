@@ -59,14 +59,42 @@ const runAsync = (fn, eventName) => {
 
 /**
  * 1. Ticket Created Event
+ * - Creator receives the "Ticket Created" template
+ * - Assignees & Team Leads receive the "Ticket Assigned to You" template
  */
 const notifyTicketCreated = (ticket, actor) => {
   runAsync(async () => {
     const freshTicket =
       (await recipientService.fetchTicketNotificationContext(ticket.id)) || ticket;
-    const recipients = recipientService.resolveTicketCreatedRecipients(freshTicket);
-    const rendered = templateService.renderTicketCreated(freshTicket);
-    await dispatchToRecipients(recipients, rendered, "TICKET_CREATED");
+
+    // 1. Send "Ticket Created" exclusively to the creator
+    const creatorRecipients =
+      recipientService.resolveTicketCreatedCreatorRecipients(freshTicket);
+    if (creatorRecipients.length > 0) {
+      const creatorRendered = templateService.renderTicketCreated(freshTicket);
+      await dispatchToRecipients(
+        creatorRecipients,
+        creatorRendered,
+        "TICKET_CREATED_CREATOR",
+      );
+    }
+
+    // 2. Send "Ticket Assigned to You" to all assignees and team leads (excluding creator)
+    const assigneeRecipients =
+      recipientService.resolveTicketCreatedAssigneeRecipients(freshTicket);
+    if (assigneeRecipients.length > 0) {
+      for (const recipient of assigneeRecipients) {
+        const assigneeRendered = templateService.renderTicketAssigned(
+          freshTicket,
+          recipient.name,
+        );
+        await dispatchToRecipients(
+          [recipient],
+          assigneeRendered,
+          "TICKET_ASSIGNED",
+        );
+      }
+    }
   }, "TICKET_CREATED");
 };
 
@@ -153,9 +181,27 @@ const notifyTicketReassigned = (ticketId, reassignedTicket, actor) => {
   }, "TICKET_REASSIGNED");
 };
 
+/**
+ * 5. Ticket Deleted Event
+ */
+const notifyTicketDeleted = (ticketContext, actor, remarks) => {
+  runAsync(async () => {
+    if (!ticketContext) return;
+    const recipients = recipientService.resolveTicketDeletedRecipients(ticketContext);
+    const actorName = actor?.name || "System Admin";
+    const rendered = templateService.renderTicketDeleted(
+      ticketContext,
+      actorName,
+      remarks,
+    );
+    await dispatchToRecipients(recipients, rendered, "TICKET_DELETED");
+  }, "TICKET_DELETED");
+};
+
 module.exports = {
   notifyTicketCreated,
   notifyTicketResolved,
   notifyTicketClosed,
   notifyTicketReassigned,
+  notifyTicketDeleted,
 };

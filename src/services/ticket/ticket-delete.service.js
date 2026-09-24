@@ -2,6 +2,8 @@ const { prisma } = require("../../lib/prisma");
 const { AppError } = require("../../utils/errors");
 const { handleTicketDbErrors } = require("./ticket-common.service");
 const { invalidateCachePattern } = require("../../utils/cache");
+const recipientService = require("../notification/recipient.service");
+const notificationService = require("../notification/notification.service");
 
 /**
  * Permanently deletes a ticket and cleans up all associated relations in a transaction.
@@ -45,6 +47,14 @@ const deleteTicket = async (ticketId, user, isGlobalScope = false) => {
       "Forbidden: You do not have permission to delete this ticket",
       403,
     );
+  }
+
+  // Fetch full notification context prior to deletion so emails contain all ticket info
+  let ticketContext = null;
+  try {
+    ticketContext = await recipientService.fetchTicketNotificationContext(numericId);
+  } catch (ctxErr) {
+    // Continue deletion even if context fetch fails
   }
 
   try {
@@ -111,6 +121,11 @@ const deleteTicket = async (ticketId, user, isGlobalScope = false) => {
 
     // Invalidate stats cache so KPI metrics immediately reflect the deletion
     await invalidateCachePattern("ticket-stats:*");
+
+    // Asynchronously dispatch ticket deleted notification
+    if (ticketContext) {
+      notificationService.notifyTicketDeleted(ticketContext, user);
+    }
 
     return {
       success: true,
