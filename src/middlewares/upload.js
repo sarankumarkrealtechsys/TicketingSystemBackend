@@ -144,11 +144,35 @@ const safeUnlink = (filePath) => {
   }
 };
 
+const SPREADSHEET_EXTENSIONS = new Set([".xlsx", ".xls", ".csv"]);
+
+const uploadSpreadsheetMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    if (!SPREADSHEET_EXTENSIONS.has(ext)) {
+      return cb(
+        new AppError(
+          `Invalid file format "${ext || "unknown"}". Please upload an Excel (.xlsx, .xls) or CSV file.`,
+          400,
+        ),
+        false,
+      );
+    }
+    cb(null, true);
+  },
+});
+
 module.exports = {
   upload,
+  uploadSpreadsheetMemory,
   computeChecksum,
   safeUnlink,
   MAX_FILE_SIZE,
   ALLOWED_EXTENSIONS,
   ALLOWED_MIME_TYPES,
 };
+

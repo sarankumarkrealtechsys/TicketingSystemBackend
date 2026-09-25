@@ -12,12 +12,31 @@ const {
   removeTeamMemberSchema,
   userTeamsQuerySchema,
 } = require("../validators/user.validator");
+const { uploadSpreadsheetMemory } = require("../middlewares/upload");
 const userAccountController = require("../controllers/user/user-account.controller");
 const userTeamController = require("../controllers/user/user-team.controller");
+const userBulkController = require("../controllers/user/user-bulk.controller");
 
 const router = Router();
 
-// ─── USER CRUD (Admin-only, GLOBAL scope) ───────────────────────────
+// ─── USER CRUD & BULK ACTIONS (Admin-only, GLOBAL scope) ────────────
+
+// GET /api/users/bulk-upload/template — Download sample Excel template
+router.get(
+  "/bulk-upload/template",
+  authenticate,
+  requirePermission("USER_CREATE"),
+  userBulkController.downloadTemplate,
+);
+
+// POST /api/users/bulk-upload — Bulk upload users via Excel (.xlsx, .xls) or CSV
+router.post(
+  "/bulk-upload",
+  authenticate,
+  requirePermission("USER_CREATE"),
+  uploadSpreadsheetMemory.single("file"),
+  userBulkController.bulkUploadUsers,
+);
 
 // POST /api/users — Create new user account
 router.post(
@@ -27,6 +46,7 @@ router.post(
   validate(createUserSchema),
   userAccountController.createUser,
 );
+
 
 // GET /api/users — List users (filterable/groupable by department)
 router.get(
