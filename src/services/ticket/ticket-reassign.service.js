@@ -16,7 +16,7 @@ const reassignTicket = async (ticketId, data, user) => {
     where: { id: Number(ticketId) },
     include: {
       team: { select: { id: true, name: true, departmentId: true } },
-      status: { select: { id: true, behavior: true } },
+      status: { select: { id: true, label: true, behavior: true } },
       assignees: {
         where: { removedAt: null },
         include: { user: { select: { id: true, name: true } } },
@@ -56,7 +56,10 @@ const reassignTicket = async (ticketId, data, user) => {
 
   const uniqueAssigneeIds = [...new Set(data.assigneeIds.map(Number))];
 
-  // Prevent redundant reassignment to identical team and assignee set
+  // Prevent redundant reassignment to identical team and assignee set for active tickets
+  const wasClosedOrResolved =
+    ticket.status.behavior === "CLOSED" || ticket.status.behavior === "RESOLVED";
+
   const currentActiveAssigneeIds = ticket.assignees.map((a) => a.userId).sort((a, b) => a - b);
   const targetAssigneeIds = [...uniqueAssigneeIds].sort((a, b) => a - b);
   const isSameTeam = (!data.teamId || Number(data.teamId) === ticket.teamId);
@@ -64,7 +67,7 @@ const reassignTicket = async (ticketId, data, user) => {
     currentActiveAssigneeIds.length === targetAssigneeIds.length &&
     currentActiveAssigneeIds.every((id, idx) => id === targetAssigneeIds[idx]);
 
-  if (isSameTeam && isSameAssignees) {
+  if (!wasClosedOrResolved && isSameTeam && isSameAssignees) {
     throw new AppError("Ticket is already assigned to this team and assignee set", 400);
   }
 
@@ -144,6 +147,8 @@ const reassignTicket = async (ticketId, data, user) => {
         });
       }
 
+      let reopenedStatusInfo = null;
+
       // 3. Reactivate or create new assignees under targetTeam.id
       for (const assigneeId of uniqueAssigneeIds) {
         const existing = await tx.ticketAssignee.findFirst({
@@ -151,6 +156,7 @@ const reassignTicket = async (ticketId, data, user) => {
             ticketId: ticket.id,
             userId: assigneeId,
           },
+          orderBy: { id: "desc" },
         });
 
         if (existing) {
@@ -175,9 +181,8 @@ const reassignTicket = async (ticketId, data, user) => {
         }
       }
 
-      // 4. If ticket was CLOSED, automatically transition back to active OPEN status
-      const wasClosed = ticket.status.behavior === "CLOSED";
-      if (wasClosed) {
+      // 4. If ticket was CLOSED or RESOLVED, automatically transition back to active OPEN status
+      if (wasClosedOrResolved) {
         let openStatus = await tx.ticketStatus.findFirst({
           where: {
             behavior: "OPEN",
@@ -199,6 +204,7 @@ const reassignTicket = async (ticketId, data, user) => {
         }
 
         if (openStatus) {
+          reopenedStatusInfo = openStatus;
           await tx.ticket.update({
             where: { id: ticket.id },
             data: {
@@ -212,9 +218,9 @@ const reassignTicket = async (ticketId, data, user) => {
               action: "STATUS_CHANGED",
               previousStatusId: ticket.statusId,
               newStatusId: openStatus.id,
-              previousBehavior: "CLOSED",
+              previousBehavior: ticket.status.behavior,
               newBehavior: "OPEN",
-              remarks: "Reopened to Open status upon reassignment",
+              remarks: `Reopened to ${openStatus.label || "Open"} status upon reassignment`,
               updatedById: user.id,
             },
           });
@@ -244,7 +250,8 @@ const reassignTicket = async (ticketId, data, user) => {
               userId: a.id,
               name: a.name,
             })),
-            wasClosed,
+            wasClosed: wasClosedOrResolved,
+            previousBehavior: ticket.status.behavior,
           }),
           updatedById: user.id,
         },
@@ -254,6 +261,9 @@ const reassignTicket = async (ticketId, data, user) => {
       return tx.ticket.findUnique({
         where: { id: ticket.id },
         include: {
+          status: {
+            select: { id: true, label: true, behavior: true },
+          },
           team: {
             select: {
               id: true,
@@ -300,6 +310,16 @@ const reassignTicket = async (ticketId, data, user) => {
       teamName: targetTeam.name,
       actor: user,
     });
+
+    if (wasClosedOrResolved && result.status?.behavior === "OPEN") {
+      inAppNotificationService.notifyInAppStatusChanged({
+        ticket,
+        previousBehavior: ticket.status.behavior,
+        newBehavior: "OPEN",
+        newStatusLabel: result.status.label || "Open",
+        actor: user,
+      });
+    }
 
     return result;
   } catch (error) {

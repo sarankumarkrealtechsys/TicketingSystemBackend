@@ -76,11 +76,19 @@ const computeTicketActions = (ticket, user, userPermissions = {}) => {
 
   return {
     update: !isClosed && (hasGlobal("TICKET_UPDATE") || isCreator),
-    addAssignee: hasGlobal("TICKET_ASSIGN") || (hasOwn("TICKET_ASSIGN") && isCreator),
-    removeAssignee: hasGlobal("TICKET_ASSIGN") || (hasOwn("TICKET_ASSIGN") && isCreator),
+    addAssignee:
+      !isClosed &&
+      (hasGlobal("TICKET_ASSIGN") ||
+        ((hasOwn("TICKET_ASSIGN") || hasOwn("TICKET_UPDATE")) && isCreator)),
+    removeAssignee:
+      !isClosed &&
+      (hasGlobal("TICKET_ASSIGN") ||
+        ((hasOwn("TICKET_ASSIGN") || hasOwn("TICKET_UPDATE")) && isCreator)),
     reassign:
       hasGlobal("TICKET_REASSIGN") ||
-      (hasOwn("TICKET_REASSIGN") && isCreator),
+      (hasOwn("TICKET_REASSIGN") && isCreator) ||
+      hasGlobal("TICKET_ASSIGN") ||
+      (hasOwn("TICKET_ASSIGN") && isCreator),
     changePriority:
       hasGlobal("TICKET_CHANGE_PRIORITY") ||
       (hasOwn("TICKET_CHANGE_PRIORITY") && (isCreator || isAssignee)) ||

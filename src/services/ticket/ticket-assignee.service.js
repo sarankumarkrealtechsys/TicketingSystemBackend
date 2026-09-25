@@ -2,6 +2,7 @@ const { prisma } = require("../../lib/prisma");
 const { AppError } = require("../../utils/errors");
 const { handleTicketDbErrors } = require("./ticket-common.service");
 const inAppNotificationService = require("../notification/in-app-notification.service");
+const notificationService = require("../notification/notification.service");
 
 /**
  * Adds an assignee to an existing ticket.
@@ -33,7 +34,7 @@ const addTicketAssignee = async (ticketId, data, user) => {
 
   const assigneeUser = await prisma.user.findUnique({
     where: { id: Number(data.userId) },
-    select: { id: true, name: true, status: true, departmentId: true },
+    select: { id: true, name: true, username: true, email: true, status: true, departmentId: true },
   });
 
   if (!assigneeUser) {
@@ -87,7 +88,7 @@ const addTicketAssignee = async (ticketId, data, user) => {
   });
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       let assigneeRecord;
       if (existingAssignment) {
         assigneeRecord = await tx.ticketAssignee.update({
@@ -138,7 +139,9 @@ const addTicketAssignee = async (ticketId, data, user) => {
           action: "ASSIGNEE_ADDED",
           newValue: JSON.stringify({
             userId: assigneeUser.id,
-            name: assigneeUser.name,
+            name: assigneeUser.name || assigneeUser.username || `User #${assigneeUser.id}`,
+            username: assigneeUser.username || null,
+            email: assigneeUser.email || null,
             teamId: targetTeamId,
           }),
           updatedById: user.id,
@@ -155,6 +158,12 @@ const addTicketAssignee = async (ticketId, data, user) => {
       assigneeUserId: assigneeUser.id,
       actor: user,
     });
+
+    notificationService.notifyAssigneeAdded(
+      ticket.id,
+      assigneeUser,
+      user,
+    );
 
     return result;
   } catch (error) {
@@ -175,7 +184,7 @@ const removeTicketAssignee = async (ticketId, targetUserId, user) => {
       assignees: {
         where: { removedAt: null },
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: { id: true, name: true, username: true, email: true } },
         },
       },
     },
@@ -202,7 +211,7 @@ const removeTicketAssignee = async (ticketId, targetUserId, user) => {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.ticketAssignee.update({
         where: { id: assignee.id },
         data: {
@@ -216,7 +225,9 @@ const removeTicketAssignee = async (ticketId, targetUserId, user) => {
           action: "ASSIGNEE_REMOVED",
           previousValue: JSON.stringify({
             userId: assignee.userId,
-            name: assignee.user.name,
+            name: assignee.user.name || assignee.user.username || `User #${assignee.userId}`,
+            username: assignee.user.username || null,
+            email: assignee.user.email || null,
             teamId: assignee.teamId,
           }),
           updatedById: user.id,
@@ -233,6 +244,26 @@ const removeTicketAssignee = async (ticketId, targetUserId, user) => {
         },
       };
     });
+
+    inAppNotificationService.notifyInAppAssigneeRemoved({
+      ticketId: ticket.id,
+      ticketNumber: ticket.ticketNumber,
+      summary: ticket.summary,
+      removedUserId: assignee.userId,
+      actor: user,
+    });
+
+    notificationService.notifyAssigneeRemoved(
+      ticket.id,
+      {
+        id: assignee.userId,
+        name: assignee.user.name,
+        email: assignee.user.email,
+      },
+      user,
+    );
+
+    return result;
   } catch (error) {
     handleTicketDbErrors(error);
   }

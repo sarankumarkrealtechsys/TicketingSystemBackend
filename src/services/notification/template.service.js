@@ -577,6 +577,41 @@ const renderTicketDeleted = (ticket, deletedByName, remarks) => {
   return { subject, ...content };
 };
 
+/**
+ * 6. Ticket Assignee Removed Email Template
+ */
+const renderTicketAssigneeRemoved = (ticket, removedUserName, actorName) => {
+  const subject = `[RTS Help Desk] Assignment Removed: #${ticket.ticketNumber} - ${ticket.summary}`;
+  const priorityLabel = ticket.priority?.label || "Normal";
+  const statusLabel = ticket.status?.label || "Open";
+  const statusBehavior = ticket.status?.behavior || "OPEN";
+
+  const content = buildEmailContent({
+    title: "Assignment Removed from Ticket",
+    badgeText: "Removed",
+    badgeBg: "#FEF2F2",
+    badgeColor: "#991B1B",
+    badgeBorder: "#FECACA",
+    ticketNumber: ticket.ticketNumber,
+    project: ticket.project?.name || "Unknown Project",
+    team: ticket.team?.name || "Unknown Team",
+    statusLabel,
+    statusBehavior,
+    actionDescription: `You have been unassigned from ticket #${ticket.ticketNumber} "${ticket.summary}" by ${actorName || "a team member"}.`,
+    details: [
+      {
+        label: "Priority",
+        value: priorityLabel,
+        htmlValue: renderPriorityBadgeHtml(priorityLabel),
+      },
+      { label: "Unassigned Engineer", value: removedUserName || "You" },
+      { label: "Action By", value: actorName || "Team Member" },
+      { label: "Summary", value: ticket.summary },
+    ],
+  });
+  return { subject, ...content };
+};
+
 module.exports = {
   getPriorityColorConfig,
   getStatusColorConfig,
@@ -584,10 +619,12 @@ module.exports = {
   renderStatusBadgeHtml,
   renderTicketCreated,
   renderTicketAssigned,
+  renderTicketAssigneeRemoved,
   renderTicketResolved,
   renderTicketClosed,
   renderTicketReassigned,
   renderTicketDeleted,
 };
+
 
 

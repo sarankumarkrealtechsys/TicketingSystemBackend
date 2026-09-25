@@ -11,6 +11,7 @@ const timeEntryRoutes = require("./ticket/time-entry.routes");
 const roleRoutes = require("./admin/role.routes");
 const permissionRoutes = require("./admin/permission.routes");
 const notificationRoutes = require("./notification/notification.routes");
+const colorRegistryRoutes = require("./color-registry.routes");
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.use("/roles", roleRoutes);
 router.use("/permissions", permissionRoutes);
 router.use("/tickets", ticketRoutes);
 router.use("/notifications", notificationRoutes);
+router.use("/color-registry", colorRegistryRoutes);
 router.use("/admin/settings", adminSettingsRoutes);
 router.use("/admin/audit-logs", adminAuditRoutes);
 router.use("/time-entries", timeEntryRoutes);

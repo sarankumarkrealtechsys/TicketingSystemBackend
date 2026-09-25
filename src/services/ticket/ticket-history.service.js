@@ -40,7 +40,7 @@ const getTicketHistory = async ({ ticketId, query = {} }) => {
       where,
       skip,
       take: pageSize,
-      orderBy: { updatedAt: "asc" },
+      orderBy: { updatedAt: "desc" },
       include: {
         updatedBy: {
           select: {

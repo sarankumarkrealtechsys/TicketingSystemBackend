@@ -650,6 +650,34 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
     (a, b) => a.sortOrder - b.sortOrder
   );
 
+  // Enrich with global custom colors if defined
+  try {
+    const { getColorRegistry } = require("../admin/color-registry.service");
+    const colorRegistry = await getColorRegistry();
+
+    for (const item of byPriority) {
+      const customColor =
+        colorRegistry.priorityColors?.[String(item.priorityId)] ||
+        colorRegistry.priorityColors?.[`label_${(item.label || "").toLowerCase().trim()}`] ||
+        colorRegistry.priorityColors?.[(item.label || "").trim()];
+      if (customColor) {
+        item.color = customColor;
+      }
+    }
+
+    for (const item of byStatus) {
+      const customColor =
+        colorRegistry.statusColors?.[String(item.statusId)] ||
+        colorRegistry.statusColors?.[`label_${(item.label || "").toLowerCase().trim()}`] ||
+        colorRegistry.statusColors?.[(item.label || "").trim()];
+      if (customColor) {
+        item.color = customColor;
+      }
+    }
+  } catch (_e) {
+    // Graceful fallback to default colors
+  }
+
   return {
     total: tickets.length,
     byStatusBehavior,

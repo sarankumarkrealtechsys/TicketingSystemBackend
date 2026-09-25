@@ -437,7 +437,7 @@ router.delete(
 router.post(
   "/:id/assignees",
   authenticate,
-  requirePermission("TICKET_ASSIGN", resolveTicketCreator),
+  requirePermission(["TICKET_ASSIGN", "TICKET_UPDATE"], resolveTicketCreator),
   validate(addAssigneeSchema),
   ticketController.addAssignee,
 );
@@ -446,7 +446,7 @@ router.post(
 router.delete(
   "/:id/assignees/:userId",
   authenticate,
-  requirePermission("TICKET_ASSIGN", resolveTicketCreator),
+  requirePermission(["TICKET_ASSIGN", "TICKET_UPDATE"], resolveTicketCreator),
   validate(removeAssigneeSchema),
   ticketController.removeAssignee,
 );

@@ -457,6 +457,37 @@ const notifyInAppPriorityChanged = ({
   });
 };
 
+/**
+ * Dispatches an in-app notification when an assignee is removed from a ticket.
+ */
+const notifyInAppAssigneeRemoved = ({
+  ticketId,
+  ticketNumber,
+  summary,
+  removedUserId,
+  actor,
+}) => {
+  const targetUserId = Number(removedUserId);
+  if (!targetUserId || targetUserId === Number(actor?.id)) return;
+
+  setImmediate(async () => {
+    try {
+      await dispatchAndPersistNotification({
+        userId: targetUserId,
+        actorId: actor?.id ? Number(actor.id) : null,
+        ticketId: Number(ticketId),
+        type: "TICKET_ASSIGNED",
+        title: `Removed from Ticket #${ticketNumber}`,
+        message: `${actor?.name || "Someone"} removed you from ticket #${ticketNumber}: "${summary}"`,
+      });
+    } catch (err) {
+      logger.error(
+        `[InAppNotification] Failed to dispatch assignee removed notification for ticket #${ticketNumber}: ${err.message}`,
+      );
+    }
+  });
+};
+
 module.exports = {
   createNotification,
   getUserNotifications,
@@ -464,7 +495,9 @@ module.exports = {
   markAllNotificationsAsRead,
   dispatchAndPersistNotification,
   notifyInAppAssigneeAdded,
+  notifyInAppAssigneeRemoved,
   notifyInAppTicketReassigned,
   notifyInAppStatusChanged,
   notifyInAppPriorityChanged,
 };
+

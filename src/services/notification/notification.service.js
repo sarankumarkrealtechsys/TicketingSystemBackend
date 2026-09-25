@@ -198,10 +198,87 @@ const notifyTicketDeleted = (ticketContext, actor, remarks) => {
   }, "TICKET_DELETED");
 };
 
+/**
+ * 6. Assignee Added to Ticket Event
+ * Dispatches "Ticket Assigned to You" email to the newly assigned engineer.
+ *
+ * @param {number} ticketId
+ * @param {{ id: number, name: string, email: string }} assigneeUser
+ * @param {Object} actor
+ */
+const notifyAssigneeAdded = (ticketId, assigneeUser, actor) => {
+  runAsync(async () => {
+    if (!assigneeUser || !assigneeUser.email) return;
+
+    // Do not email the actor if they assigned themselves
+    if (actor?.id && Number(actor.id) === Number(assigneeUser.id)) return;
+
+    const freshTicket = await recipientService.fetchTicketNotificationContext(
+      typeof ticketId === "object" ? ticketId.id : Number(ticketId),
+    );
+    if (!freshTicket) return;
+
+    const recipient = {
+      email: assigneeUser.email,
+      name: assigneeUser.name || "Engineer",
+      userId: assigneeUser.id,
+      role: "Assignee",
+    };
+
+    const rendered = templateService.renderTicketAssigned(
+      freshTicket,
+      assigneeUser.name || "Engineer",
+    );
+
+    await dispatchToRecipients([recipient], rendered, "TICKET_ASSIGNEE_ADDED");
+  }, "TICKET_ASSIGNEE_ADDED");
+};
+
+/**
+ * 7. Assignee Removed from Ticket Event
+ * Dispatches "Assignment Removed" email to the unassigned engineer.
+ *
+ * @param {number} ticketId
+ * @param {{ id: number, name: string, email: string }} removedUser
+ * @param {Object} actor
+ */
+const notifyAssigneeRemoved = (ticketId, removedUser, actor) => {
+  runAsync(async () => {
+    if (!removedUser || !removedUser.email) return;
+
+    // Do not email the actor if they removed themselves
+    if (actor?.id && Number(actor.id) === Number(removedUser.id)) return;
+
+    const freshTicket = await recipientService.fetchTicketNotificationContext(
+      typeof ticketId === "object" ? ticketId.id : Number(ticketId),
+    );
+    if (!freshTicket) return;
+
+    const recipient = {
+      email: removedUser.email,
+      name: removedUser.name || "Engineer",
+      userId: removedUser.id,
+      role: "Assignee",
+    };
+
+    const rendered = templateService.renderTicketAssigneeRemoved(
+      freshTicket,
+      removedUser.name || "Engineer",
+      actor?.name || "Team Member",
+    );
+
+    await dispatchToRecipients([recipient], rendered, "TICKET_ASSIGNEE_REMOVED");
+  }, "TICKET_ASSIGNEE_REMOVED");
+};
+
 module.exports = {
   notifyTicketCreated,
   notifyTicketResolved,
   notifyTicketClosed,
   notifyTicketReassigned,
   notifyTicketDeleted,
+  notifyAssigneeAdded,
+  notifyAssigneeRemoved,
 };
+
+
