@@ -19,7 +19,6 @@ const ALLOWED_EXTENSIONS = new Set([
   ".jpeg",
   ".webp",
   ".gif",
-  ".svg",
   // Videos
   ".mp4",
   ".webm",
@@ -37,7 +36,6 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/gif",
   "image/webp",
-  "image/svg+xml",
   // Videos
   "video/mp4",
   "video/webm",

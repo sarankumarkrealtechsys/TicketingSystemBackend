@@ -23,21 +23,20 @@ const apiRateLimiter = rateLimit({
 
 /**
  * Login-specific rate limiter.
- * 
- * const loginRateLimiter = rateLimit({
+ * Protects /api/auth/login against automated credential stuffing and brute-force attacks.
+ * In development: 50 attempts per 15 minutes.
+ * In production: 10 attempts per 15 minutes per IP.
+ */
+const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 login attempts per IP per window
+  max: isDevelopment ? 50 : 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
     status: "error",
-    message: "Too many login attempts, please try again later.",
+    message: "Too many login attempts. Please try again after 15 minutes.",
   },
 });
-
- * Set to infinity (pass-through) for testing.
- */
-const loginRateLimiter = (_req, _res, next) => next();
 
 /**
  * File upload rate limiter.

@@ -164,9 +164,29 @@ const createTicket = async (data, user, isGlobalScope = false) => {
   if (data.parentTicketId) {
     const parentTicket = await prisma.ticket.findUnique({
       where: { id: Number(data.parentTicketId) },
+      select: {
+        id: true,
+        ticketNumber: true,
+        parentTicketId: true,
+        status: {
+          select: { behavior: true },
+        },
+      },
     });
     if (!parentTicket) {
       throw new AppError("Parent ticket not found", 404);
+    }
+    if (parentTicket.status?.behavior === "CLOSED") {
+      throw new AppError(
+        `Cannot create a sub-ticket under closed ticket #${parentTicket.ticketNumber}. Re-open the parent ticket first.`,
+        400,
+      );
+    }
+    if (parentTicket.parentTicketId) {
+      throw new AppError(
+        "Multi-level nesting is not supported. Sub-tickets can only be created under primary tickets.",
+        400,
+      );
     }
   }
 

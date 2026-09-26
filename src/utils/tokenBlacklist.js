@@ -25,19 +25,32 @@ const { logger } = require("../config/logger");
  */
 const blacklistUserTokens = async (userId, maxTokenLifetimeSeconds = 2592000) => {
   try {
-    if (!redisClient || !redisClient.isOpen) return;
+    if (redisClient && redisClient.isOpen) {
+      const key = `token-blacklist:user:${userId}`;
+      // Store the timestamp in milliseconds for sub-second precision
+      const blacklistedAt = Date.now();
 
-    const key = `token-blacklist:user:${userId}`;
-    // Store the timestamp in milliseconds for sub-second precision
-    const blacklistedAt = Date.now();
+      await redisClient.set(key, String(blacklistedAt), {
+        EX: maxTokenLifetimeSeconds,
+      });
 
-    await redisClient.set(key, String(blacklistedAt), {
-      EX: maxTokenLifetimeSeconds,
-    });
-
-    logger.debug(`[Token Blacklist] Blacklisted user ${userId} tokens issued before ${blacklistedAt}`);
+      logger.debug(`[Token Blacklist] Blacklisted user ${userId} tokens issued before ${blacklistedAt}`);
+    }
   } catch (err) {
     logger.warn(`[Token Blacklist Error] userId=${userId}: ${err.message || err}`);
+  }
+
+  // Sever all active WebSocket connections for this user across any open browser tabs or devices
+  try {
+    const { getIO } = require("../lib/socket");
+    const io = getIO();
+    if (io) {
+      io.in(`user:${userId}`).disconnectSockets(true);
+      logger.info(`[Socket.IO] Disconnected active sockets for blacklisted user ${userId}`);
+    }
+  } catch (socketErr) {
+    // If socket server is not initialized, log notice without throwing
+    logger.debug(`[Socket.IO Disconnect Notice] userId=${userId}: ${socketErr.message}`);
   }
 };
 

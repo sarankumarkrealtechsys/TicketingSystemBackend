@@ -39,6 +39,8 @@ const downloadAttachment = async (req, res, next) => {
       "Content-Disposition",
       `attachment; filename="${encodeURIComponent(safeFilename)}"`,
     );
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Security-Policy", "default-src 'none'");
     res.setHeader("Content-Length", attachment.fileSizeBytes);
 
     const stream = fs.createReadStream(absolutePath);
