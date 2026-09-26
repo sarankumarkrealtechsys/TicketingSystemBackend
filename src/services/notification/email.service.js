@@ -1,6 +1,40 @@
 const nodemailer = require("nodemailer");
+const dns = require("dns");
 const { env } = require("../../config/env");
 const { logger } = require("../../config/logger");
+
+// Resolve Windows/c-ares DNS loopback issue where dns.getServers() defaults to ['127.0.0.1']
+try {
+  if (typeof dns.setDefaultResultOrder === "function") {
+    dns.setDefaultResultOrder("ipv4first");
+  }
+  const currentServers = dns.getServers();
+  if (!currentServers.length || (currentServers.length === 1 && currentServers[0] === "127.0.0.1")) {
+    dns.setServers(["8.8.8.8", "1.1.1.1"]);
+  }
+} catch (e) {
+  // Silently ignore if restricted
+}
+
+// Wrap dns.Resolver so Nodemailer's internal resolveHostname calls use reliable public DNS
+if (dns.Resolver && !dns.Resolver.__patchedForFallback) {
+  const OrigResolver = dns.Resolver;
+  class ResilientResolver extends OrigResolver {
+    constructor(options) {
+      super(options);
+      try {
+        const servers = this.getServers();
+        if (!servers.length || (servers.length === 1 && servers[0] === "127.0.0.1")) {
+          this.setServers(["8.8.8.8", "1.1.1.1"]);
+        }
+      } catch (err) {
+        // Fallback silently
+      }
+    }
+  }
+  ResilientResolver.__patchedForFallback = true;
+  dns.Resolver = ResilientResolver;
+}
 
 let transporter = null;
 let mockTransportEnabled = false;
@@ -13,6 +47,7 @@ const getTransporter = () => {
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
+      family: 4, // Force IPv4 to prevent unroutable IPv6 timeouts
     };
     if (env.SMTP_USER && env.SMTP_PASSWORD) {
       transportConfig.auth = {

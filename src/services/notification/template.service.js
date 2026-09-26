@@ -322,14 +322,34 @@ ${detailsText ? detailsText + "\n" : ""}
  * 1. Ticket Created Email Template (Sent exclusively to the creator)
  */
 const renderTicketCreated = (ticket) => {
-  const subject = `[RTS Help Desk] Ticket Created: #${ticket.ticketNumber} - ${ticket.summary}`;
+  const isSubTicket = Boolean(ticket.parentTicket || ticket.parentTicketId);
+  const subject = isSubTicket
+    ? `[RTS Help Desk] Sub-Ticket Created: #${ticket.ticketNumber} - ${ticket.summary}`
+    : `[RTS Help Desk] Ticket Created: #${ticket.ticketNumber} - ${ticket.summary}`;
   const priorityLabel = ticket.priority?.label || "Normal";
   const statusLabel = ticket.status?.label || "Open";
   const statusBehavior = ticket.status?.behavior || "OPEN";
 
+  const details = [
+    {
+      label: "Priority",
+      value: priorityLabel,
+      htmlValue: renderPriorityBadgeHtml(priorityLabel),
+    },
+    { label: "Created By", value: ticket.createdBy?.name || "You" },
+    { label: "Summary", value: ticket.summary },
+  ];
+
+  if (ticket.parentTicket) {
+    details.unshift({
+      label: "Parent Ticket",
+      value: `#${ticket.parentTicket.ticketNumber} - ${ticket.parentTicket.summary}`,
+    });
+  }
+
   const content = buildEmailContent({
-    title: "Ticket Created",
-    badgeText: "Created",
+    title: isSubTicket ? "Sub-Ticket Created" : "Ticket Created",
+    badgeText: isSubTicket ? "Sub-Ticket" : "Created",
     badgeBg: "#EFF6FF",
     badgeColor: "#1F3864",
     badgeBorder: "#BFDBFE",
@@ -338,16 +358,10 @@ const renderTicketCreated = (ticket) => {
     team: ticket.team?.name || "Unknown Team",
     statusLabel,
     statusBehavior,
-    actionDescription: `Your ticket #${ticket.ticketNumber} "${ticket.summary}" has been created successfully.`,
-    details: [
-      {
-        label: "Priority",
-        value: priorityLabel,
-        htmlValue: renderPriorityBadgeHtml(priorityLabel),
-      },
-      { label: "Created By", value: ticket.createdBy?.name || "You" },
-      { label: "Summary", value: ticket.summary },
-    ],
+    actionDescription: isSubTicket && ticket.parentTicket
+      ? `Your sub-ticket #${ticket.ticketNumber} "${ticket.summary}" has been created successfully under Ticket #${ticket.parentTicket.ticketNumber}.`
+      : `Your ticket #${ticket.ticketNumber} "${ticket.summary}" has been created successfully.`,
+    details,
   });
   return { subject, ...content };
 };
@@ -356,14 +370,35 @@ const renderTicketCreated = (ticket) => {
  * 2. Ticket Assigned to You Email Template (Sent to assignees & leads)
  */
 const renderTicketAssigned = (ticket, assigneeName) => {
-  const subject = `[RTS Help Desk] Ticket Assigned to You: #${ticket.ticketNumber} - ${ticket.summary}`;
+  const isSubTicket = Boolean(ticket.parentTicket || ticket.parentTicketId);
+  const subject = isSubTicket
+    ? `[RTS Help Desk] Sub-Ticket Assigned to You: #${ticket.ticketNumber} - ${ticket.summary}`
+    : `[RTS Help Desk] Ticket Assigned to You: #${ticket.ticketNumber} - ${ticket.summary}`;
   const priorityLabel = ticket.priority?.label || "Normal";
   const statusLabel = ticket.status?.label || "Open";
   const statusBehavior = ticket.status?.behavior || "OPEN";
 
+  const details = [
+    {
+      label: "Priority",
+      value: priorityLabel,
+      htmlValue: renderPriorityBadgeHtml(priorityLabel),
+    },
+    { label: "Assigned To", value: assigneeName || "You" },
+    { label: "Created By", value: ticket.createdBy?.name || "User" },
+    { label: "Summary", value: ticket.summary },
+  ];
+
+  if (ticket.parentTicket) {
+    details.unshift({
+      label: "Parent Ticket",
+      value: `#${ticket.parentTicket.ticketNumber} - ${ticket.parentTicket.summary}`,
+    });
+  }
+
   const content = buildEmailContent({
-    title: "Ticket Assigned to You",
-    badgeText: "Assigned",
+    title: isSubTicket ? "Sub-Ticket Assigned to You" : "Ticket Assigned to You",
+    badgeText: isSubTicket ? "Sub-Ticket" : "Assigned",
     badgeBg: "#EEF2FF",
     badgeColor: "#4338CA",
     badgeBorder: "#C7D2FE",
@@ -372,18 +407,61 @@ const renderTicketAssigned = (ticket, assigneeName) => {
     team: ticket.team?.name || "Unknown Team",
     statusLabel,
     statusBehavior,
-    actionDescription: `Ticket #${ticket.ticketNumber} "${ticket.summary}" has been assigned to you.`,
-    details: [
-      {
-        label: "Priority",
-        value: priorityLabel,
-        htmlValue: renderPriorityBadgeHtml(priorityLabel),
-      },
-      { label: "Assigned To", value: assigneeName || "You" },
-      { label: "Created By", value: ticket.createdBy?.name || "User" },
-      { label: "Summary", value: ticket.summary },
-    ],
+    actionDescription: isSubTicket && ticket.parentTicket
+      ? `Sub-ticket #${ticket.ticketNumber} "${ticket.summary}" under Ticket #${ticket.parentTicket.ticketNumber} has been assigned to you.`
+      : `Ticket #${ticket.ticketNumber} "${ticket.summary}" has been assigned to you.`,
+    details,
   });
+  return { subject, ...content };
+};
+
+/**
+ * 2b. Sub-Ticket Created Email Template (Sent to parent ticket stakeholders)
+ */
+const renderSubTicketCreatedForParent = (parentTicket, subTicket, actor) => {
+  const subject = `[RTS Help Desk] Sub-Ticket Created: #${subTicket.ticketNumber} under #${parentTicket.ticketNumber}`;
+  const priorityLabel = subTicket.priority?.label || "Normal";
+  const statusLabel = subTicket.status?.label || "Open";
+  const actorName = actor?.name || "A team member";
+
+  const details = [
+    { label: "Sub-Ticket", value: `#${subTicket.ticketNumber}` },
+    {
+      label: "Parent Ticket",
+      value: `#${parentTicket.ticketNumber} - ${parentTicket.summary}`,
+    },
+    {
+      label: "Priority",
+      value: priorityLabel,
+      htmlValue: renderPriorityBadgeHtml(priorityLabel),
+    },
+    { label: "Created By", value: actorName },
+    { label: "Summary", value: subTicket.summary },
+  ];
+
+  const assigneeNames = (subTicket.assignees || [])
+    .map((a) => a.user?.name)
+    .filter(Boolean)
+    .join(", ");
+  if (assigneeNames) {
+    details.push({ label: "Assigned To", value: assigneeNames });
+  }
+
+  const content = buildEmailContent({
+    title: "Sub-Ticket Created Under Your Ticket",
+    badgeText: "Sub-Ticket Added",
+    badgeBg: "#F0FDF4",
+    badgeColor: "#15803D",
+    badgeBorder: "#BBF7D0",
+    ticketNumber: subTicket.ticketNumber,
+    project: subTicket.project?.name || parentTicket.project?.name || "Help Desk",
+    team: subTicket.team?.name || "Unknown Team",
+    statusLabel,
+    statusBehavior: "OPEN",
+    actionDescription: `${actorName} created a new sub-ticket #${subTicket.ticketNumber} ("${subTicket.summary}") linked to ticket #${parentTicket.ticketNumber}.`,
+    details,
+  });
+
   return { subject, ...content };
 };
 
@@ -396,12 +474,24 @@ const renderTicketResolved = (
   newStatusLabel,
   remarks,
 ) => {
-  const subject = `[RTS Help Desk] Ticket Resolved: #${ticket.ticketNumber} - ${ticket.summary}`;
+  const isSubTicket = Boolean(ticket.parentTicket || ticket.parentTicketId);
+  const subject = isSubTicket
+    ? `[RTS Help Desk] Sub-Ticket Resolved: #${ticket.ticketNumber} - ${ticket.summary}`
+    : `[RTS Help Desk] Ticket Resolved: #${ticket.ticketNumber} - ${ticket.summary}`;
   const prevLabel = previousStatusLabel || "In Progress";
   const currentStatusLabel = newStatusLabel || ticket.status?.label || "Resolved";
   const priorityLabel = ticket.priority?.label || "Normal";
 
-  const details = [
+  const details = [];
+
+  if (ticket.parentTicket) {
+    details.push({
+      label: "Parent Ticket",
+      value: `#${ticket.parentTicket.ticketNumber} - ${ticket.parentTicket.summary}`,
+    });
+  }
+
+  details.push(
     { label: "Summary", value: ticket.summary },
     {
       label: "Priority",
@@ -418,14 +508,15 @@ const renderTicketResolved = (
       value: currentStatusLabel,
       htmlValue: renderStatusBadgeHtml(currentStatusLabel, "RESOLVED"),
     },
-  ];
+  );
+
   if (remarks) {
     details.push({ label: "Resolution Notes", value: remarks });
   }
 
   const content = buildEmailContent({
-    title: "Ticket Marked as Resolved",
-    badgeText: "Resolved",
+    title: isSubTicket ? "Sub-Ticket Marked as Resolved" : "Ticket Marked as Resolved",
+    badgeText: isSubTicket ? "Sub-Ticket Resolved" : "Resolved",
     badgeBg: "#ECFDF5",
     badgeColor: "#047857",
     badgeBorder: "#A7F3D0",
@@ -434,7 +525,9 @@ const renderTicketResolved = (
     team: ticket.team?.name || "Unknown Team",
     statusLabel: currentStatusLabel,
     statusBehavior: "RESOLVED",
-    actionDescription: `Ticket #${ticket.ticketNumber} has been resolved and is ready for verification.`,
+    actionDescription: isSubTicket && ticket.parentTicket
+      ? `Sub-ticket #${ticket.ticketNumber} under Ticket #${ticket.parentTicket.ticketNumber} has been resolved and is ready for verification.`
+      : `Ticket #${ticket.ticketNumber} has been resolved and is ready for verification.`,
     details,
   });
   return { subject, ...content };
@@ -449,12 +542,24 @@ const renderTicketClosed = (
   newStatusLabel,
   remarks,
 ) => {
-  const subject = `[RTS Help Desk] Ticket Closed: #${ticket.ticketNumber} - ${ticket.summary}`;
+  const isSubTicket = Boolean(ticket.parentTicket || ticket.parentTicketId);
+  const subject = isSubTicket
+    ? `[RTS Help Desk] Sub-Ticket Closed: #${ticket.ticketNumber} - ${ticket.summary}`
+    : `[RTS Help Desk] Ticket Closed: #${ticket.ticketNumber} - ${ticket.summary}`;
   const prevLabel = previousStatusLabel || "Resolved";
   const currentStatusLabel = newStatusLabel || ticket.status?.label || "Closed";
   const priorityLabel = ticket.priority?.label || "Normal";
 
-  const details = [
+  const details = [];
+
+  if (ticket.parentTicket) {
+    details.push({
+      label: "Parent Ticket",
+      value: `#${ticket.parentTicket.ticketNumber} - ${ticket.parentTicket.summary}`,
+    });
+  }
+
+  details.push(
     { label: "Summary", value: ticket.summary },
     {
       label: "Priority",
@@ -471,14 +576,15 @@ const renderTicketClosed = (
       value: currentStatusLabel,
       htmlValue: renderStatusBadgeHtml(currentStatusLabel, "CLOSED"),
     },
-  ];
+  );
+
   if (remarks) {
     details.push({ label: "Closure Notes", value: remarks });
   }
 
   const content = buildEmailContent({
-    title: "Ticket Closed",
-    badgeText: "Closed",
+    title: isSubTicket ? "Sub-Ticket Closed" : "Ticket Closed",
+    badgeText: isSubTicket ? "Sub-Ticket Closed" : "Closed",
     badgeBg: "#F1F5F9",
     badgeColor: "#475569",
     badgeBorder: "#CBD5E1",
@@ -487,7 +593,9 @@ const renderTicketClosed = (
     team: ticket.team?.name || "Unknown Team",
     statusLabel: currentStatusLabel,
     statusBehavior: "CLOSED",
-    actionDescription: `Ticket #${ticket.ticketNumber} has been finalized and closed.`,
+    actionDescription: isSubTicket && ticket.parentTicket
+      ? `Sub-ticket #${ticket.ticketNumber} under Ticket #${ticket.parentTicket.ticketNumber} has been finalized and closed.`
+      : `Ticket #${ticket.ticketNumber} has been finalized and closed.`,
     details,
   });
   return { subject, ...content };
@@ -619,6 +727,7 @@ module.exports = {
   renderStatusBadgeHtml,
   renderTicketCreated,
   renderTicketAssigned,
+  renderSubTicketCreatedForParent,
   renderTicketAssigneeRemoved,
   renderTicketResolved,
   renderTicketClosed,

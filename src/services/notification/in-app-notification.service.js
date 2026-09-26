@@ -381,7 +381,7 @@ const notifyInAppStatusChanged = ({
         message = `${actor?.name || "Someone"} updated ticket #${ticket.ticketNumber} status to ${newStatusLabel || "new status"} ("${ticket.summary}")`;
       }
 
-      // 3. Dispatch to all recipients
+      // 3. Dispatch to direct ticket recipients
       for (const uid of recipientIds) {
         await dispatchAndPersistNotification({
           userId: uid,
@@ -391,6 +391,74 @@ const notifyInAppStatusChanged = ({
           title,
           message,
         });
+      }
+
+      // 4. If this is a sub-ticket, notify parent ticket stakeholders
+      const parentTicketId = ticket.parentTicketId || ticket.parentTicket?.id;
+      if (parentTicketId) {
+        const parent =
+          ticket.parentTicket ||
+          (await prisma.ticket.findUnique({
+            where: { id: Number(parentTicketId) },
+            select: {
+              id: true,
+              ticketNumber: true,
+              summary: true,
+              createdById: true,
+              assignees: {
+                where: { removedAt: null },
+                select: { userId: true },
+              },
+            },
+          }));
+
+        if (parent) {
+          const parentRecipientIds = new Set();
+          if (
+            parent.createdById &&
+            Number(parent.createdById) !== actorId &&
+            !recipientIds.has(Number(parent.createdById))
+          ) {
+            parentRecipientIds.add(Number(parent.createdById));
+          }
+          if (Array.isArray(parent.assignees)) {
+            for (const a of parent.assignees) {
+              if (
+                a.userId &&
+                Number(a.userId) !== actorId &&
+                !recipientIds.has(Number(a.userId))
+              ) {
+                parentRecipientIds.add(Number(a.userId));
+              }
+            }
+          }
+
+          if (parentRecipientIds.size > 0) {
+            let parentTitle;
+            let parentMessage;
+            if (newBehavior === "RESOLVED") {
+              parentTitle = `Sub-ticket #${ticket.ticketNumber} Resolved`;
+              parentMessage = `${actor?.name || "Someone"} resolved sub-ticket #${ticket.ticketNumber} under Ticket #${parent.ticketNumber} ("${ticket.summary}")`;
+            } else if (newBehavior === "CLOSED") {
+              parentTitle = `Sub-ticket #${ticket.ticketNumber} Closed`;
+              parentMessage = `${actor?.name || "Someone"} closed sub-ticket #${ticket.ticketNumber} under Ticket #${parent.ticketNumber} ("${ticket.summary}")`;
+            } else {
+              parentTitle = `Sub-ticket #${ticket.ticketNumber}: ${newStatusLabel || "Updated"}`;
+              parentMessage = `${actor?.name || "Someone"} updated sub-ticket #${ticket.ticketNumber} of Ticket #${parent.ticketNumber} to ${newStatusLabel || "new status"} ("${ticket.summary}")`;
+            }
+
+            for (const pUid of parentRecipientIds) {
+              await dispatchAndPersistNotification({
+                userId: pUid,
+                actorId,
+                ticketId: ticket.id,
+                type: "TICKET_ASSIGNED",
+                title: parentTitle,
+                message: parentMessage,
+              });
+            }
+          }
+        }
       }
     } catch (err) {
       logger.error(
@@ -488,6 +556,82 @@ const notifyInAppAssigneeRemoved = ({
   });
 };
 
+/**
+ * Dispatches in-app notifications to parent ticket stakeholders when a sub-ticket is created.
+ */
+const notifyInAppSubTicketCreated = ({
+  parentTicketId,
+  subTicket,
+  actor,
+}) => {
+  if (!parentTicketId || !subTicket) return;
+
+  setImmediate(async () => {
+    try {
+      const parent = await prisma.ticket.findUnique({
+        where: { id: Number(parentTicketId) },
+        select: {
+          id: true,
+          ticketNumber: true,
+          summary: true,
+          createdById: true,
+          assignees: {
+            where: { removedAt: null },
+            select: { userId: true },
+          },
+        },
+      });
+
+      if (!parent) return;
+
+      const actorId = actor?.id ? Number(actor.id) : null;
+      const recipientIds = new Set();
+
+      // Notify parent ticket creator if not the actor
+      if (parent.createdById && Number(parent.createdById) !== actorId) {
+        recipientIds.add(Number(parent.createdById));
+      }
+
+      // Notify parent ticket assignees if not the actor
+      if (Array.isArray(parent.assignees)) {
+        for (const a of parent.assignees) {
+          if (a.userId && Number(a.userId) !== actorId) {
+            recipientIds.add(Number(a.userId));
+          }
+        }
+      }
+
+      // Exclude users who are assignees on the sub-ticket itself (they receive assigned notification)
+      if (Array.isArray(subTicket.assignees)) {
+        for (const a of subTicket.assignees) {
+          const uid = a.userId || a.user?.id;
+          if (uid) recipientIds.delete(Number(uid));
+        }
+      }
+
+      if (recipientIds.size === 0) return;
+
+      const title = `Sub-ticket #${subTicket.ticketNumber} Created`;
+      const message = `${actor?.name || "Someone"} created sub-ticket #${subTicket.ticketNumber} under Ticket #${parent.ticketNumber}: "${subTicket.summary}"`;
+
+      for (const uid of recipientIds) {
+        await dispatchAndPersistNotification({
+          userId: uid,
+          actorId,
+          ticketId: subTicket.id,
+          type: "TICKET_ASSIGNED",
+          title,
+          message,
+        });
+      }
+    } catch (err) {
+      logger.error(
+        `[InAppNotification] Failed to dispatch sub-ticket creation notification for ticket #${subTicket?.ticketNumber}: ${err.message}`,
+      );
+    }
+  });
+};
+
 module.exports = {
   createNotification,
   getUserNotifications,
@@ -499,5 +643,7 @@ module.exports = {
   notifyInAppTicketReassigned,
   notifyInAppStatusChanged,
   notifyInAppPriorityChanged,
+  notifyInAppSubTicketCreated,
 };
+
 

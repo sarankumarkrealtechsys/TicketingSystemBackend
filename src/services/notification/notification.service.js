@@ -95,6 +95,34 @@ const notifyTicketCreated = (ticket, actor) => {
         );
       }
     }
+
+    // 3. If this is a sub-ticket, notify parent ticket stakeholders
+    if (freshTicket.parentTicket) {
+      const alreadyNotifiedEmails = [
+        ...creatorRecipients.map((r) => r.email),
+        ...assigneeRecipients.map((r) => r.email),
+      ];
+      if (actor?.email) alreadyNotifiedEmails.push(actor.email);
+
+      const parentRecipients =
+        recipientService.resolveSubTicketCreatedParentRecipients(
+          freshTicket,
+          alreadyNotifiedEmails,
+        );
+
+      if (parentRecipients.length > 0) {
+        const parentRendered = templateService.renderSubTicketCreatedForParent(
+          freshTicket.parentTicket,
+          freshTicket,
+          actor,
+        );
+        await dispatchToRecipients(
+          parentRecipients,
+          parentRendered,
+          "SUBTICKET_CREATED_PARENT",
+        );
+      }
+    }
   }, "TICKET_CREATED");
 };
 

@@ -371,13 +371,18 @@ const createTicket = async (data, user, isGlobalScope = false) => {
       setImmediate(async () => {
         for (const assigneeId of externalAssigneeIds) {
           try {
+            const isSub = Boolean(createdTicket.parentTicketId);
             await inAppNotificationService.dispatchAndPersistNotification({
               userId: assigneeId,
               actorId: user.id,
               ticketId: createdTicket.id,
               type: "TICKET_ASSIGNED",
-              title: `Assigned to Ticket #${createdTicket.ticketNumber}`,
-              message: `${user.name} assigned you to ticket #${createdTicket.ticketNumber}: "${createdTicket.summary}"`,
+              title: isSub
+                ? `Assigned to Sub-ticket #${createdTicket.ticketNumber}`
+                : `Assigned to Ticket #${createdTicket.ticketNumber}`,
+              message: isSub
+                ? `${user.name} assigned you to sub-ticket #${createdTicket.ticketNumber}: "${createdTicket.summary}"`
+                : `${user.name} assigned you to ticket #${createdTicket.ticketNumber}: "${createdTicket.summary}"`,
             });
           } catch (err) {
             logger.error(

@@ -92,14 +92,18 @@ const createTicketSchema = {
 
 const ticketQuerySchema = {
   query: z.object({
-    teamId: z.coerce.number().int().positive().optional(),
-    statusId: z.coerce.number().int().positive().optional(),
-    priorityId: z.coerce.number().int().positive().optional(),
+    teamId: z.union([z.coerce.number().int().positive(), z.string()]).optional(),
+    teamIds: z.union([z.string(), z.array(z.coerce.number())]).optional(),
+    statusId: z.union([z.coerce.number().int().positive(), z.string()]).optional(),
+    statusIds: z.union([z.string(), z.array(z.coerce.number())]).optional(),
+    priorityId: z.union([z.coerce.number().int().positive(), z.string()]).optional(),
+    priorityIds: z.union([z.string(), z.array(z.coerce.number())]).optional(),
     projectId: z.coerce.number().int().positive().optional(),
     assigneeId: z.coerce.number().int().positive().optional(),
     createdById: z.coerce.number().int().positive().optional(),
     scope: z.enum(["all", "personal", "created", "assigned"]).optional(),
     search: z.string().trim().optional(),
+    date: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "date must be a valid date string" }).optional(),
     startDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "startDate must be a valid date string" }).optional(),
     endDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "endDate must be a valid date string" }).optional(),
     createdAfter: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "createdAfter must be a valid date string" }).optional(),
@@ -342,14 +346,18 @@ const agingReportQuerySchema = {
 
 const exportQuerySchema = {
   query: z.object({
-    teamId: z.coerce.number().int().positive().optional(),
-    statusId: z.coerce.number().int().positive().optional(),
-    priorityId: z.coerce.number().int().positive().optional(),
+    teamId: z.union([z.coerce.number().int().positive(), z.string()]).optional(),
+    teamIds: z.union([z.string(), z.array(z.coerce.number())]).optional(),
+    statusId: z.union([z.coerce.number().int().positive(), z.string()]).optional(),
+    statusIds: z.union([z.string(), z.array(z.coerce.number())]).optional(),
+    priorityId: z.union([z.coerce.number().int().positive(), z.string()]).optional(),
+    priorityIds: z.union([z.string(), z.array(z.coerce.number())]).optional(),
     projectId: z.coerce.number().int().positive().optional(),
     assigneeId: z.coerce.number().int().positive().optional(),
     createdById: z.coerce.number().int().positive().optional(),
     scope: z.enum(["all", "personal", "created", "assigned"]).optional(),
     search: z.string().trim().optional(),
+    date: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "date must be a valid date string" }).optional(),
     startDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "startDate must be a valid date string" }).optional(),
     endDate: z.string().refine((v) => !isNaN(Date.parse(v)), { message: "endDate must be a valid date string" }).optional(),
     ticketType: z.enum(["all", "main", "sub"]).optional(),

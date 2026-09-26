@@ -25,6 +25,14 @@ const createTicket = async (req, res, next) => {
 
     notificationService.notifyTicketCreated(data, req.user);
 
+    if (data.parentTicketId) {
+      inAppNotificationService.notifyInAppSubTicketCreated({
+        parentTicketId: data.parentTicketId,
+        subTicket: data,
+        actor: req.user,
+      });
+    }
+
     return res.status(201).json({
       status: "success",
       data,
@@ -94,14 +102,16 @@ const getTicketStats = async (req, res, next) => {
     // Non-global callers are strictly restricted to personal scope
     const scope = !isGlobalScope ? "personal" : (req.query.scope || "global");
 
-    // Strictly scope cache key by user role, user ID, and scope so responses are never shared
-    const cacheKey = `ticket-stats:${req.user.userRole?.name || "USER"}:${req.user.id}:${scope}`;
+    // Strictly scope cache key by user role, user ID, scope, and date bounds so responses are never mixed
+    const { date, startDate, endDate } = req.query;
+    const cacheKey = `ticket-stats:${req.user.userRole?.name || "USER"}:${req.user.id}:${scope}:${date || ""}:${startDate || ""}:${endDate || ""}`;
 
     const data = await getOrSetCache(cacheKey, 10, () =>
       ticketQueryService.getTicketStats(
         req.user,
         isGlobalScope && scope !== "personal",
         scope,
+        { date, startDate, endDate },
       ),
     );
 
@@ -256,6 +266,35 @@ const changeStatus = async (req, res, next) => {
       actor: req.user,
     });
 
+    // Notify cascaded auto-closed sub-tickets if parent ticket was closed
+    if (Array.isArray(data._cascadedSubTickets) && data._cascadedSubTickets.length > 0) {
+      for (const sub of data._cascadedSubTickets) {
+        notificationService.notifyTicketClosed(
+          sub.id,
+          {
+            previousStatusLabel: sub.statusBehavior || "Open",
+            newStatusLabel: "Closed",
+            remarks: `Auto-closed via cascade from parent ticket #${data.ticketNumber}`,
+          },
+          req.user,
+        );
+        inAppNotificationService.notifyInAppStatusChanged({
+          ticket: {
+            id: sub.id,
+            ticketNumber: sub.ticketNumber,
+            summary: sub.summary,
+            createdById: sub.createdById,
+            parentTicketId: data.id,
+          },
+          previousBehavior: sub.statusBehavior || "OPEN",
+          newBehavior: "CLOSED",
+          newStatusLabel: "Closed",
+          remarks: `Auto-closed via cascade from parent ticket #${data.ticketNumber}`,
+          actor: req.user,
+        });
+      }
+    }
+
     return res.status(200).json({
       status: "success",
       data,
@@ -297,6 +336,35 @@ const closeTicket = async (req, res, next) => {
       remarks: req.body.remarks || "Ticket closed",
       actor: req.user,
     });
+
+    // Notify cascaded auto-closed sub-tickets if parent ticket was closed
+    if (Array.isArray(data._cascadedSubTickets) && data._cascadedSubTickets.length > 0) {
+      for (const sub of data._cascadedSubTickets) {
+        notificationService.notifyTicketClosed(
+          sub.id,
+          {
+            previousStatusLabel: sub.statusBehavior || "Open",
+            newStatusLabel: "Closed",
+            remarks: `Auto-closed via cascade from parent ticket #${data.ticketNumber}`,
+          },
+          req.user,
+        );
+        inAppNotificationService.notifyInAppStatusChanged({
+          ticket: {
+            id: sub.id,
+            ticketNumber: sub.ticketNumber,
+            summary: sub.summary,
+            createdById: sub.createdById,
+            parentTicketId: data.id,
+          },
+          previousBehavior: sub.statusBehavior || "OPEN",
+          newBehavior: "CLOSED",
+          newStatusLabel: "Closed",
+          remarks: `Auto-closed via cascade from parent ticket #${data.ticketNumber}`,
+          actor: req.user,
+        });
+      }
+    }
 
     return res.status(200).json({
       status: "success",
@@ -349,6 +417,14 @@ const createSubTicket = async (req, res, next) => {
     );
 
     await invalidateCachePattern("ticket-stats:*");
+
+    notificationService.notifyTicketCreated(data, req.user);
+
+    inAppNotificationService.notifyInAppSubTicketCreated({
+      parentTicketId: Number(req.params.id),
+      subTicket: data,
+      actor: req.user,
+    });
 
     return res.status(201).json({
       status: "success",

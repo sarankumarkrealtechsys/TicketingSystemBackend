@@ -12,14 +12,14 @@ const { handleTicketDbErrors } = require("./ticket-common.service");
 const cascadeCloseSubTickets = async (tx, parentTicket, defaultClosedStatusId, user) => {
   const descendants = await tx.$queryRaw`
     WITH RECURSIVE descendant_tree AS (
-      SELECT t.id, t."ticketNumber", t."statusId", t."teamId", t."closedAt", s.behavior as "statusBehavior"
+      SELECT t.id, t."ticketNumber", t."summary", t."createdById", t."statusId", t."teamId", t."closedAt", s.behavior as "statusBehavior"
       FROM tickets t
       JOIN ticket_statuses s ON t."statusId" = s.id
       WHERE t."parentTicketId" = ${parentTicket.id}
 
       UNION ALL
 
-      SELECT child.id, child."ticketNumber", child."statusId", child."teamId", child."closedAt", s.behavior as "statusBehavior"
+      SELECT child.id, child."ticketNumber", child."summary", child."createdById", child."statusId", child."teamId", child."closedAt", s.behavior as "statusBehavior"
       FROM tickets child
       JOIN ticket_statuses s ON child."statusId" = s.id
       JOIN descendant_tree parent ON child."parentTicketId" = parent.id
@@ -32,7 +32,7 @@ const cascadeCloseSubTickets = async (tx, parentTicket, defaultClosedStatusId, u
     : [];
 
   if (nonClosedDescendants.length === 0) {
-    return;
+    return [];
   }
 
   // Collect distinct teamIds from descendants to batch resolve team Closed statuses
@@ -68,6 +68,7 @@ const cascadeCloseSubTickets = async (tx, parentTicket, defaultClosedStatusId, u
   }
 
   const cascadeNow = new Date();
+  const closedDescendants = [];
 
   for (const sub of nonClosedDescendants) {
     const targetStatusId =
@@ -97,7 +98,17 @@ const cascadeCloseSubTickets = async (tx, parentTicket, defaultClosedStatusId, u
         updatedById: user.id,
       },
     });
+
+    closedDescendants.push({
+      id: sub.id,
+      ticketNumber: sub.ticketNumber,
+      summary: sub.summary,
+      createdById: sub.createdById,
+      statusBehavior: sub.statusBehavior,
+    });
   }
+
+  return closedDescendants;
 };
 
 /**
@@ -158,8 +169,9 @@ const changeTicketStatus = async (ticketId, data, user) => {
   try {
     return await prisma.$transaction(async (tx) => {
       // If closing parent ticket, auto-cascade close all descendant sub-tickets
+      let cascadedSubTickets = [];
       if (newStatus.behavior === "CLOSED") {
-        await cascadeCloseSubTickets(tx, ticket, newStatus.id, user);
+        cascadedSubTickets = await cascadeCloseSubTickets(tx, ticket, newStatus.id, user);
       }
 
       const updateData = {
@@ -209,6 +221,11 @@ const changeTicketStatus = async (ticketId, data, user) => {
 
       Object.defineProperty(updatedTicket, "_previousStatus", {
         value: ticket.status,
+        enumerable: false,
+      });
+
+      Object.defineProperty(updatedTicket, "_cascadedSubTickets", {
+        value: cascadedSubTickets,
         enumerable: false,
       });
 
@@ -285,7 +302,7 @@ const closeTicket = async (ticketId, data, user, isGlobalScope = false) => {
   try {
     return await prisma.$transaction(async (tx) => {
       // 1. Recursive descendant collection in a single query (no N+1 loops) & auto-cascade
-      await cascadeCloseSubTickets(tx, ticket, closedStatus.id, user);
+      const cascadedSubTickets = await cascadeCloseSubTickets(tx, ticket, closedStatus.id, user);
 
       // 2. Update and close the parent ticket
       const updateData = {
@@ -330,6 +347,11 @@ const closeTicket = async (ticketId, data, user, isGlobalScope = false) => {
 
       Object.defineProperty(updatedTicket, "_previousStatus", {
         value: ticket.status,
+        enumerable: false,
+      });
+
+      Object.defineProperty(updatedTicket, "_cascadedSubTickets", {
+        value: cascadedSubTickets,
         enumerable: false,
       });
 

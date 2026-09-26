@@ -74,10 +74,46 @@ const buildTicketWhereQuery = ({ query, user, isGlobalScope = false }) => {
   }
 
   if (query.createdById) where.createdById = Number(query.createdById);
-  if (query.teamId) where.teamId = Number(query.teamId);
-  if (query.statusId) where.statusId = Number(query.statusId);
-  if (query.priorityId) where.priorityId = Number(query.priorityId);
   if (query.projectId) where.projectId = Number(query.projectId);
+
+  // Teams (single or multi-select)
+  const rawTeams = query.teamIds || query.teamId;
+  if (rawTeams) {
+    const ids = (Array.isArray(rawTeams) ? rawTeams : String(rawTeams).split(","))
+      .map((id) => Number(String(id).trim()))
+      .filter((id) => !isNaN(id) && id > 0);
+    if (ids.length === 1) {
+      where.teamId = ids[0];
+    } else if (ids.length > 1) {
+      where.teamId = { in: ids };
+    }
+  }
+
+  // Statuses (single or multi-select)
+  const rawStatuses = query.statusIds || query.statusId;
+  if (rawStatuses) {
+    const ids = (Array.isArray(rawStatuses) ? rawStatuses : String(rawStatuses).split(","))
+      .map((id) => Number(String(id).trim()))
+      .filter((id) => !isNaN(id) && id > 0);
+    if (ids.length === 1) {
+      where.statusId = ids[0];
+    } else if (ids.length > 1) {
+      where.statusId = { in: ids };
+    }
+  }
+
+  // Priorities (single or multi-select)
+  const rawPriorities = query.priorityIds || query.priorityId;
+  if (rawPriorities) {
+    const ids = (Array.isArray(rawPriorities) ? rawPriorities : String(rawPriorities).split(","))
+      .map((id) => Number(String(id).trim()))
+      .filter((id) => !isNaN(id) && id > 0);
+    if (ids.length === 1) {
+      where.priorityId = ids[0];
+    } else if (ids.length > 1) {
+      where.priorityId = { in: ids };
+    }
+  }
 
   if (query.assigneeId) {
     where.assignees = {
@@ -96,8 +132,15 @@ const buildTicketWhereQuery = ({ query, user, isGlobalScope = false }) => {
     where.parentTicketId = { not: null };
   }
 
-  const startDate = query.startDate || query.createdAfter;
-  const endDate = query.endDate || query.createdBefore;
+  let startDate = query.startDate || query.createdAfter;
+  let endDate = query.endDate || query.createdBefore;
+
+  if (query.date && !startDate && !endDate) {
+    const dateStr = String(query.date).split("T")[0];
+    startDate = new Date(`${dateStr}T00:00:00.000Z`);
+    endDate = new Date(`${dateStr}T23:59:59.999Z`);
+  }
+
   if (startDate || endDate) {
     where.createdAt = {};
     if (startDate) where.createdAt.gte = new Date(startDate);
@@ -513,7 +556,7 @@ const getTicketById = async (id, user, isGlobalScope = false, userPermissions = 
  * Returns aggregated statistics for KPI dashboard cards and charts.
  * Scoped by caller's permissions (Admin sees all, User sees active personal/team tickets).
  */
-const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
+const getTicketStats = async (user, isGlobalScope = false, scope = null, query = {}) => {
   const where = {};
 
   const isPersonalOrScoped = scope === "personal" || !isGlobalScope;
@@ -530,6 +573,21 @@ const getTicketStats = async (user, isGlobalScope = false, scope = null) => {
         },
       },
     ];
+  }
+
+  let startDate = query.startDate || query.createdAfter;
+  let endDate = query.endDate || query.createdBefore;
+
+  if (query.date && !startDate && !endDate) {
+    const dateStr = String(query.date).split("T")[0];
+    startDate = new Date(`${dateStr}T00:00:00.000Z`);
+    endDate = new Date(`${dateStr}T23:59:59.999Z`);
+  }
+
+  if (startDate || endDate) {
+    where.createdAt = {};
+    if (startDate) where.createdAt.gte = new Date(startDate);
+    if (endDate) where.createdAt.lte = new Date(endDate);
   }
 
   // Determine allowed status scope:

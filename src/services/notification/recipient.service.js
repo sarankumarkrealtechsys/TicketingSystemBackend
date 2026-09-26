@@ -51,6 +51,19 @@ const fetchTicketNotificationContext = async (ticketId) => {
         where: { removedAt: null },
         include: { team: { select: { id: true, name: true, teamAdminEmail: true } } },
       },
+      parentTicket: {
+        select: {
+          id: true,
+          ticketNumber: true,
+          summary: true,
+          createdById: true,
+          createdBy: { select: { id: true, name: true, email: true } },
+          assignees: {
+            where: { removedAt: null },
+            include: { user: { select: { id: true, name: true, email: true } } },
+          },
+        },
+      },
     },
   });
 };
@@ -188,7 +201,55 @@ const resolveTicketCreatedRecipients = (ticket) => {
 const resolveStatusChangedRecipients = (ticket) => {
   const recipients = collectBaseTicketRecipients(ticket);
   recipients.push(...collectCollabTeamLeads(ticket));
+  recipients.push(...collectParentTicketRecipients(ticket));
   return deduplicateRecipients(recipients);
+};
+
+/**
+ * Extracts parent ticket creator and active assignees if the ticket has a parent ticket.
+ */
+const collectParentTicketRecipients = (ticket) => {
+  const list = [];
+  const parent = ticket?.parentTicket;
+  if (!parent) return list;
+
+  if (parent.createdBy?.email) {
+    list.push({
+      email: parent.createdBy.email,
+      name: parent.createdBy.name,
+      userId: parent.createdBy.id,
+      role: "Parent Ticket Creator",
+    });
+  }
+
+  if (Array.isArray(parent.assignees)) {
+    for (const a of parent.assignees) {
+      if (a.user?.email) {
+        list.push({
+          email: a.user.email,
+          name: a.user.name,
+          userId: a.user.id,
+          role: "Parent Ticket Assignee",
+        });
+      }
+    }
+  }
+
+  return list;
+};
+
+/**
+ * Resolves recipients for sub-ticket creation to notify parent ticket stakeholders.
+ * Excludes users who are already direct recipients (subticket creator or assignees).
+ */
+const resolveSubTicketCreatedParentRecipients = (ticket, excludeEmails = []) => {
+  const parentRecipients = collectParentTicketRecipients(ticket);
+  const normalizedExcludes = new Set(
+    excludeEmails.map((e) => (e || "").trim().toLowerCase()).filter(Boolean),
+  );
+  return deduplicateRecipients(parentRecipients).filter(
+    (r) => !normalizedExcludes.has(r.email.trim().toLowerCase()),
+  );
 };
 
 /**
@@ -214,6 +275,8 @@ const resolveTicketDeletedRecipients = (ticket) => {
 module.exports = {
   deduplicateRecipients,
   fetchTicketNotificationContext,
+  collectParentTicketRecipients,
+  resolveSubTicketCreatedParentRecipients,
   resolveTicketCreatedRecipients,
   resolveTicketCreatedCreatorRecipients,
   resolveTicketCreatedAssigneeRecipients,
@@ -221,3 +284,4 @@ module.exports = {
   resolveReassignmentRecipients,
   resolveTicketDeletedRecipients,
 };
+
