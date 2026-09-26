@@ -103,14 +103,7 @@ const initSocket = (server) => {
 
   io = new Server(server, {
     cors: {
-      origin: (origin, callback) => {
-        const normalizedOrigin = origin ? origin.replace(/\/+$/, "") : "";
-        if (!origin || allowedOrigins.includes(normalizedOrigin)) {
-          callback(null, true);
-        } else {
-          callback(new Error("Not allowed by CORS"));
-        }
-      },
+      origin: env.NODE_ENV === "production" ? allowedOrigins : true,
       credentials: true,
     },
   });

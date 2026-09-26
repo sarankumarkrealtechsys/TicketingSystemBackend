@@ -23,24 +23,24 @@ const app = express();
 // Security headers
 app.use(helmet());
 
-// CORS configuration - sourced dynamically from env.CORS_ORIGIN (supports comma-separated list)
+// CORS configuration - In development mode, all origins are permitted (origin: true); in production, strictly enforce allowedOrigins whitelist
 const allowedOrigins = env.CORS_ORIGIN
   ? env.CORS_ORIGIN.split(",")
       .map((origin) => origin.trim().replace(/\/+$/, ""))
       .filter(Boolean)
   : [];
 
+// Chrome Private Network Access (PNA) support for local development
+app.use((req, res, next) => {
+  if (req.headers["access-control-request-private-network"]) {
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+  }
+  next();
+});
+
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. server-to-server or mobile app) or allowed origins
-      const normalizedOrigin = origin ? origin.replace(/\/+$/, "") : "";
-      if (!origin || allowedOrigins.includes(normalizedOrigin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: env.NODE_ENV === "production" ? allowedOrigins : true,
     credentials: true,
   }),
 );
