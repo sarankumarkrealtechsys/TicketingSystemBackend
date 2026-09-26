@@ -14,12 +14,14 @@ const ensureTableExists = async () => {
   if (tableEnsured) return;
   try {
     await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS system_settings (
-        id SERIAL PRIMARY KEY,
-        key VARCHAR(100) UNIQUE NOT NULL,
-        value TEXT NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      CREATE TABLE IF NOT EXISTS "system_settings" (
+        "id" SERIAL PRIMARY KEY,
+        "key" VARCHAR(100) UNIQUE NOT NULL,
+        "value" TEXT NOT NULL,
+        "description" TEXT,
+        "updatedById" INTEGER,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
     `;
     tableEnsured = true;
@@ -37,22 +39,30 @@ const ensureTableExists = async () => {
  */
 const isEmailNotificationsEnabled = async () => {
   try {
-    await ensureTableExists();
-    const rows = await prisma.$queryRaw`
-      SELECT value FROM system_settings WHERE key = ${SETTING_KEY_EMAIL_NOTIFICATIONS} LIMIT 1
-    `;
+    const record = await prisma.systemSetting.findUnique({
+      where: { key: SETTING_KEY_EMAIL_NOTIFICATIONS },
+      select: { value: true },
+    });
 
-    if (!rows || rows.length === 0) {
-      // Default to enabled if table exists but key is not yet seeded
+    if (!record || record.value === null || record.value === undefined) {
       return true;
     }
 
-    return rows[0].value === "true" || rows[0].value === true;
+    return record.value === "true" || record.value === true;
   } catch (error) {
-    logger.error(
-      `[Settings] Failed to read ${SETTING_KEY_EMAIL_NOTIFICATIONS} from PostgreSQL: ${error.message}. Failing closed (notifications disabled).`,
-    );
-    return false;
+    logger.warn(`[Settings] Prisma findUnique notice: ${error.message}, trying raw query`);
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT value FROM "system_settings" WHERE key = ${SETTING_KEY_EMAIL_NOTIFICATIONS} LIMIT 1
+      `;
+      if (!rows || rows.length === 0) return true;
+      return rows[0].value === "true" || rows[0].value === true;
+    } catch (fallbackErr) {
+      logger.error(
+        `[Settings] Failed to read ${SETTING_KEY_EMAIL_NOTIFICATIONS} from PostgreSQL: ${fallbackErr.message}. Failing closed (notifications disabled).`,
+      );
+      return false;
+    }
   }
 };
 
@@ -63,12 +73,12 @@ const isEmailNotificationsEnabled = async () => {
  */
 const getEmailNotificationsSetting = async () => {
   try {
-    await ensureTableExists();
-    const rows = await prisma.$queryRaw`
-      SELECT value, updated_at FROM system_settings WHERE key = ${SETTING_KEY_EMAIL_NOTIFICATIONS} LIMIT 1
-    `;
+    const record = await prisma.systemSetting.findUnique({
+      where: { key: SETTING_KEY_EMAIL_NOTIFICATIONS },
+      select: { value: true, updatedAt: true },
+    });
 
-    if (!rows || rows.length === 0) {
+    if (!record) {
       return {
         enabled: true,
         updatedAt: new Date(),
@@ -76,14 +86,26 @@ const getEmailNotificationsSetting = async () => {
     }
 
     return {
-      enabled: rows[0].value === "true" || rows[0].value === true,
-      updatedAt: rows[0].updated_at || new Date(),
+      enabled: record.value === "true" || record.value === true,
+      updatedAt: record.updatedAt || new Date(),
     };
   } catch (error) {
-    logger.error(
-      `[Settings] Error retrieving ${SETTING_KEY_EMAIL_NOTIFICATIONS}: ${error.message}`,
-    );
-    // Return safe default so frontend does not crash with 500 error
+    logger.warn(`[Settings] Prisma findUnique notice: ${error.message}, trying raw query`);
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT value, "updatedAt" FROM "system_settings" WHERE key = ${SETTING_KEY_EMAIL_NOTIFICATIONS} LIMIT 1
+      `;
+      if (rows && rows.length > 0) {
+        return {
+          enabled: rows[0].value === "true" || rows[0].value === true,
+          updatedAt: rows[0].updatedAt || new Date(),
+        };
+      }
+    } catch (fallbackErr) {
+      logger.error(
+        `[Settings] Error retrieving ${SETTING_KEY_EMAIL_NOTIFICATIONS}: ${fallbackErr.message}`,
+      );
+    }
     return {
       enabled: true,
       updatedAt: new Date(),
@@ -99,21 +121,48 @@ const getEmailNotificationsSetting = async () => {
  * @returns {Promise<{ enabled: boolean, updatedAt: Date }>}
  */
 const updateEmailNotificationsSetting = async (enabled) => {
-  await ensureTableExists();
   const strValue = String(Boolean(enabled));
   const now = new Date();
 
-  await prisma.$executeRaw`
-    INSERT INTO system_settings (key, value, updated_at, created_at)
-    VALUES (${SETTING_KEY_EMAIL_NOTIFICATIONS}, ${strValue}, ${now}, ${now})
-    ON CONFLICT (key) DO UPDATE
-    SET value = ${strValue}, updated_at = ${now}
-  `;
+  try {
+    const updated = await prisma.systemSetting.upsert({
+      where: { key: SETTING_KEY_EMAIL_NOTIFICATIONS },
+      update: {
+        value: strValue,
+      },
+      create: {
+        key: SETTING_KEY_EMAIL_NOTIFICATIONS,
+        value: strValue,
+      },
+    });
 
-  return {
-    enabled: Boolean(enabled),
-    updatedAt: now,
-  };
+    return {
+      enabled: updated.value === "true" || updated.value === true,
+      updatedAt: updated.updatedAt || now,
+    };
+  } catch (prismaErr) {
+    logger.warn(`[Settings] Prisma upsert notice: ${prismaErr.message}, trying raw SQL fallbacks`);
+    try {
+      await prisma.$executeRaw`
+        INSERT INTO "system_settings" (key, value, "updatedAt", "createdAt")
+        VALUES (${SETTING_KEY_EMAIL_NOTIFICATIONS}, ${strValue}, ${now}, ${now})
+        ON CONFLICT (key) DO UPDATE
+        SET value = ${strValue}, "updatedAt" = ${now}
+      `;
+    } catch (rawErr) {
+      await prisma.$executeRaw`
+        INSERT INTO system_settings (key, value, updated_at, created_at)
+        VALUES (${SETTING_KEY_EMAIL_NOTIFICATIONS}, ${strValue}, ${now}, ${now})
+        ON CONFLICT (key) DO UPDATE
+        SET value = ${strValue}, updated_at = ${now}
+      `;
+    }
+
+    return {
+      enabled: Boolean(enabled),
+      updatedAt: now,
+    };
+  }
 };
 
 /**
@@ -125,22 +174,30 @@ const updateEmailNotificationsSetting = async (enabled) => {
  */
 const isInAppNotificationsEnabled = async () => {
   try {
-    await ensureTableExists();
-    const rows = await prisma.$queryRaw`
-      SELECT value FROM system_settings WHERE key = ${SETTING_KEY_IN_APP_NOTIFICATIONS} LIMIT 1
-    `;
+    const record = await prisma.systemSetting.findUnique({
+      where: { key: SETTING_KEY_IN_APP_NOTIFICATIONS },
+      select: { value: true },
+    });
 
-    if (!rows || rows.length === 0) {
-      // Default to enabled if table exists but key is not yet seeded
+    if (!record || record.value === null || record.value === undefined) {
       return true;
     }
 
-    return rows[0].value === "true" || rows[0].value === true;
+    return record.value === "true" || record.value === true;
   } catch (error) {
-    logger.error(
-      `[Settings] Failed to read ${SETTING_KEY_IN_APP_NOTIFICATIONS} from PostgreSQL: ${error.message}. Failing closed (notifications disabled).`,
-    );
-    return false;
+    logger.warn(`[Settings] Prisma findUnique notice: ${error.message}, trying raw query`);
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT value FROM "system_settings" WHERE key = ${SETTING_KEY_IN_APP_NOTIFICATIONS} LIMIT 1
+      `;
+      if (!rows || rows.length === 0) return true;
+      return rows[0].value === "true" || rows[0].value === true;
+    } catch (fallbackErr) {
+      logger.error(
+        `[Settings] Failed to read ${SETTING_KEY_IN_APP_NOTIFICATIONS} from PostgreSQL: ${fallbackErr.message}. Failing closed (notifications disabled).`,
+      );
+      return false;
+    }
   }
 };
 
@@ -151,12 +208,12 @@ const isInAppNotificationsEnabled = async () => {
  */
 const getInAppNotificationsSetting = async () => {
   try {
-    await ensureTableExists();
-    const rows = await prisma.$queryRaw`
-      SELECT value, updated_at FROM system_settings WHERE key = ${SETTING_KEY_IN_APP_NOTIFICATIONS} LIMIT 1
-    `;
+    const record = await prisma.systemSetting.findUnique({
+      where: { key: SETTING_KEY_IN_APP_NOTIFICATIONS },
+      select: { value: true, updatedAt: true },
+    });
 
-    if (!rows || rows.length === 0) {
+    if (!record) {
       return {
         enabled: true,
         updatedAt: new Date(),
@@ -164,14 +221,26 @@ const getInAppNotificationsSetting = async () => {
     }
 
     return {
-      enabled: rows[0].value === "true" || rows[0].value === true,
-      updatedAt: rows[0].updated_at || new Date(),
+      enabled: record.value === "true" || record.value === true,
+      updatedAt: record.updatedAt || new Date(),
     };
   } catch (error) {
-    logger.error(
-      `[Settings] Error retrieving ${SETTING_KEY_IN_APP_NOTIFICATIONS}: ${error.message}`,
-    );
-    // Return safe default so frontend does not crash with 500 error
+    logger.warn(`[Settings] Prisma findUnique notice: ${error.message}, trying raw query`);
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT value, "updatedAt" FROM "system_settings" WHERE key = ${SETTING_KEY_IN_APP_NOTIFICATIONS} LIMIT 1
+      `;
+      if (rows && rows.length > 0) {
+        return {
+          enabled: rows[0].value === "true" || rows[0].value === true,
+          updatedAt: rows[0].updatedAt || new Date(),
+        };
+      }
+    } catch (fallbackErr) {
+      logger.error(
+        `[Settings] Error retrieving ${SETTING_KEY_IN_APP_NOTIFICATIONS}: ${fallbackErr.message}`,
+      );
+    }
     return {
       enabled: true,
       updatedAt: new Date(),
@@ -187,21 +256,48 @@ const getInAppNotificationsSetting = async () => {
  * @returns {Promise<{ enabled: boolean, updatedAt: Date }>}
  */
 const updateInAppNotificationsSetting = async (enabled) => {
-  await ensureTableExists();
   const strValue = String(Boolean(enabled));
   const now = new Date();
 
-  await prisma.$executeRaw`
-    INSERT INTO system_settings (key, value, updated_at, created_at)
-    VALUES (${SETTING_KEY_IN_APP_NOTIFICATIONS}, ${strValue}, ${now}, ${now})
-    ON CONFLICT (key) DO UPDATE
-    SET value = ${strValue}, updated_at = ${now}
-  `;
+  try {
+    const updated = await prisma.systemSetting.upsert({
+      where: { key: SETTING_KEY_IN_APP_NOTIFICATIONS },
+      update: {
+        value: strValue,
+      },
+      create: {
+        key: SETTING_KEY_IN_APP_NOTIFICATIONS,
+        value: strValue,
+      },
+    });
 
-  return {
-    enabled: Boolean(enabled),
-    updatedAt: now,
-  };
+    return {
+      enabled: updated.value === "true" || updated.value === true,
+      updatedAt: updated.updatedAt || now,
+    };
+  } catch (prismaErr) {
+    logger.warn(`[Settings] Prisma upsert notice: ${prismaErr.message}, trying raw SQL fallbacks`);
+    try {
+      await prisma.$executeRaw`
+        INSERT INTO "system_settings" (key, value, "updatedAt", "createdAt")
+        VALUES (${SETTING_KEY_IN_APP_NOTIFICATIONS}, ${strValue}, ${now}, ${now})
+        ON CONFLICT (key) DO UPDATE
+        SET value = ${strValue}, "updatedAt" = ${now}
+      `;
+    } catch (rawErr) {
+      await prisma.$executeRaw`
+        INSERT INTO system_settings (key, value, updated_at, created_at)
+        VALUES (${SETTING_KEY_IN_APP_NOTIFICATIONS}, ${strValue}, ${now}, ${now})
+        ON CONFLICT (key) DO UPDATE
+        SET value = ${strValue}, updated_at = ${now}
+      `;
+    }
+
+    return {
+      enabled: Boolean(enabled),
+      updatedAt: now,
+    };
+  }
 };
 
 module.exports = {

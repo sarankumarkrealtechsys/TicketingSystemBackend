@@ -133,18 +133,36 @@ const addAssigneeSchema = {
       .int("Ticket ID must be an integer")
       .positive("Ticket ID must be a positive number"),
   }),
-  body: z.object({
-    userId: z.coerce
-      .number({ required_error: "User ID is required" })
-      .int("User ID must be an integer")
-      .positive("User ID must be a positive number"),
-    teamId: z.coerce
-      .number()
-      .int("Team ID must be an integer")
-      .positive("Team ID must be a positive number")
-      .nullable()
-      .optional(),
-  }),
+  body: z
+    .object({
+      userId: z.coerce
+        .number()
+        .int("User ID must be an integer")
+        .positive("User ID must be a positive number")
+        .optional(),
+      userIds: z
+        .array(
+          z.coerce
+            .number()
+            .int("User ID must be an integer")
+            .positive("User ID must be a positive number")
+        )
+        .optional(),
+      teamId: z.coerce
+        .number()
+        .int("Team ID must be an integer")
+        .positive("Team ID must be a positive number")
+        .nullable()
+        .optional(),
+    })
+    .refine(
+      (data) =>
+        data.userId !== undefined ||
+        (Array.isArray(data.userIds) && data.userIds.length > 0),
+      {
+        message: "At least one assignee (userId or userIds) is required",
+      }
+    ),
 };
 
 const removeAssigneeSchema = {

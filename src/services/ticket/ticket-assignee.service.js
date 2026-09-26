@@ -5,11 +5,12 @@ const inAppNotificationService = require("../notification/in-app-notification.se
 const notificationService = require("../notification/notification.service");
 
 /**
- * Adds an assignee to an existing ticket.
- * - Enforces assignee is active and belongs to the same department as the primary team.
+ * Adds one or more assignees to an existing ticket.
+ * - Supports single userId or multiple userIds.
+ * - Enforces assignees are active and belong to the same department as the primary team.
  * - Enforces teamId context is primary team or an active collaborating team.
  * - Enforces partial unique constraint: cannot duplicate active assignment.
- * - Records ASSIGNEE_ADDED in TicketHistory.
+ * - Records ASSIGNEE_ADDED in TicketHistory for each assignee.
  */
 const addTicketAssignee = async (ticketId, data, user) => {
   const ticket = await prisma.ticket.findUnique({
@@ -32,25 +33,6 @@ const addTicketAssignee = async (ticketId, data, user) => {
     throw new AppError("Cannot add an assignee to a closed ticket", 400);
   }
 
-  const assigneeUser = await prisma.user.findUnique({
-    where: { id: Number(data.userId) },
-    select: { id: true, name: true, username: true, email: true, status: true, departmentId: true },
-  });
-
-  if (!assigneeUser) {
-    throw new AppError("Assignee user not found", 404);
-  }
-  if (assigneeUser.status !== "ACTIVE") {
-    throw new AppError("Cannot assign an inactive user", 400);
-  }
-
-  if (assigneeUser.departmentId !== ticket.team.departmentId) {
-    throw new AppError(
-      `Cannot assign user "${assigneeUser.name}" (id=${assigneeUser.id}) — assignee must belong to the same department as the team`,
-      400,
-    );
-  }
-
   let targetTeamId = ticket.teamId;
   if (data.teamId) {
     const customTeamId = Number(data.teamId);
@@ -67,105 +49,161 @@ const addTicketAssignee = async (ticketId, data, user) => {
     targetTeamId = customTeamId;
   }
 
-  const activeAssignment = await prisma.ticketAssignee.findFirst({
+  // Normalize user IDs
+  const rawIds = Array.isArray(data.userIds) && data.userIds.length > 0
+    ? data.userIds
+    : (data.userId !== undefined ? [data.userId] : []);
+  const uniqueUserIds = Array.from(new Set(rawIds.map((id) => Number(id))));
+
+  if (uniqueUserIds.length === 0) {
+    throw new AppError("At least one assignee is required", 400);
+  }
+
+  const assigneeUsers = await prisma.user.findMany({
+    where: { id: { in: uniqueUserIds } },
+    select: { id: true, name: true, username: true, email: true, status: true, departmentId: true },
+  });
+
+  if (assigneeUsers.length !== uniqueUserIds.length) {
+    throw new AppError("One or more assignee users were not found", 404);
+  }
+
+  for (const u of assigneeUsers) {
+    if (u.status !== "ACTIVE") {
+      throw new AppError(`Cannot assign inactive user "${u.name || u.username}"`, 400);
+    }
+    if (u.departmentId !== ticket.team.departmentId) {
+      throw new AppError(
+        `Cannot assign user "${u.name}" (id=${u.id}) — assignee must belong to the same department as the team`,
+        400,
+      );
+    }
+  }
+
+  // Find currently active assignments on this ticket for these users
+  const activeAssignments = await prisma.ticketAssignee.findMany({
     where: {
       ticketId: ticket.id,
-      userId: assigneeUser.id,
+      userId: { in: uniqueUserIds },
       removedAt: null,
     },
   });
 
-  if (activeAssignment) {
-    throw new AppError("User is already an active assignee on this ticket", 400);
+  if (activeAssignments.length > 0) {
+    if (uniqueUserIds.length === 1) {
+      throw new AppError("User is already an active assignee on this ticket", 400);
+    }
+    const activeSet = new Set(activeAssignments.map((a) => a.userId));
+    if (uniqueUserIds.every((id) => activeSet.has(id))) {
+      throw new AppError("All selected users are already active assignees on this ticket", 400);
+    }
   }
 
-  const existingAssignment = await prisma.ticketAssignee.findFirst({
+  const activeUserIdSet = new Set(activeAssignments.map((a) => a.userId));
+  const toAssignUsers = assigneeUsers.filter((u) => !activeUserIdSet.has(u.id));
+
+  // Find existing assignments to reactivate
+  const existingAssignments = await prisma.ticketAssignee.findMany({
     where: {
       ticketId: ticket.id,
-      userId: assigneeUser.id,
+      userId: { in: toAssignUsers.map((u) => u.id) },
     },
     orderBy: { id: "desc" },
   });
+  const existingByUserId = new Map();
+  for (const ea of existingAssignments) {
+    if (!existingByUserId.has(ea.userId)) {
+      existingByUserId.set(ea.userId, ea);
+    }
+  }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      let assigneeRecord;
-      if (existingAssignment) {
-        assigneeRecord = await tx.ticketAssignee.update({
-          where: { id: existingAssignment.id },
-          data: {
-            teamId: targetTeamId,
-            removedAt: null,
-            assignedAt: new Date(),
-            assignedById: user.id,
-          },
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                username: true,
-                email: true,
-                departmentId: true,
+    const results = await prisma.$transaction(async (tx) => {
+      const records = [];
+      for (const u of toAssignUsers) {
+        let assigneeRecord;
+        const existingAssignment = existingByUserId.get(u.id);
+        if (existingAssignment) {
+          assigneeRecord = await tx.ticketAssignee.update({
+            where: { id: existingAssignment.id },
+            data: {
+              teamId: targetTeamId,
+              removedAt: null,
+              assignedAt: new Date(),
+              assignedById: user.id,
+            },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  username: true,
+                  email: true,
+                  departmentId: true,
+                },
               },
             },
-          },
-        });
-      } else {
-        assigneeRecord = await tx.ticketAssignee.create({
+          });
+        } else {
+          assigneeRecord = await tx.ticketAssignee.create({
+            data: {
+              ticketId: ticket.id,
+              userId: u.id,
+              teamId: targetTeamId,
+              assignedById: user.id,
+            },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  username: true,
+                  email: true,
+                  departmentId: true,
+                },
+              },
+            },
+          });
+        }
+
+        await tx.ticketHistory.create({
           data: {
             ticketId: ticket.id,
-            userId: assigneeUser.id,
-            teamId: targetTeamId,
-            assignedById: user.id,
-          },
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                username: true,
-                email: true,
-                departmentId: true,
-              },
-            },
+            action: "ASSIGNEE_ADDED",
+            newValue: JSON.stringify({
+              userId: u.id,
+              name: u.name || u.username || `User #${u.id}`,
+              username: u.username || null,
+              email: u.email || null,
+              teamId: targetTeamId,
+            }),
+            updatedById: user.id,
           },
         });
-      }
 
-      await tx.ticketHistory.create({
-        data: {
-          ticketId: ticket.id,
-          action: "ASSIGNEE_ADDED",
-          newValue: JSON.stringify({
-            userId: assigneeUser.id,
-            name: assigneeUser.name || assigneeUser.username || `User #${assigneeUser.id}`,
-            username: assigneeUser.username || null,
-            email: assigneeUser.email || null,
-            teamId: targetTeamId,
-          }),
-          updatedById: user.id,
-        },
+        records.push(assigneeRecord);
+      }
+      return records;
+    });
+
+    // Notify for each added assignee
+    for (const u of toAssignUsers) {
+      inAppNotificationService.notifyInAppAssigneeAdded({
+        ticketId: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        summary: ticket.summary,
+        assigneeUserId: u.id,
+        actor: user,
       });
 
-      return assigneeRecord;
-    });
+      notificationService.notifyAssigneeAdded(
+        ticket.id,
+        u,
+        user,
+      );
+    }
 
-    inAppNotificationService.notifyInAppAssigneeAdded({
-      ticketId: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      summary: ticket.summary,
-      assigneeUserId: assigneeUser.id,
-      actor: user,
-    });
-
-    notificationService.notifyAssigneeAdded(
-      ticket.id,
-      assigneeUser,
-      user,
-    );
-
-    return result;
+    return Array.isArray(data.userIds) ? results : (results[0] || null);
   } catch (error) {
     handleTicketDbErrors(error);
   }
